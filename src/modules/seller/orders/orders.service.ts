@@ -152,8 +152,7 @@ export class OrdersService {
       success: true,
       order: {
         id: updated.id,
-        status:
-          STATUS_DISPLAY_MAP[updated.status as OrderStatus] ?? updated.status,
+        status: STATUS_DISPLAY_MAP[updated.status] ?? updated.status,
         updatedAt: updated.updatedAt,
       },
     };
