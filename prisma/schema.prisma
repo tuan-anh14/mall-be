@@ -1,0 +1,686 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum UserType {
+  BUYER
+  SELLER
+}
+
+enum OrderStatus {
+  PENDING           // Vừa đặt, chờ xác nhận
+  CONFIRMED         // Seller đã xác nhận
+  PROCESSING        // Đang chuẩn bị hàng
+  SHIPPED           // Đã gửi hàng
+  OUT_FOR_DELIVERY  // Đang giao
+  DELIVERED         // Đã giao thành công
+  CANCELLED         // Đã hủy
+  REFUNDED          // Đã hoàn tiền
+}
+
+enum PaymentMethodType {
+  CREDIT_CARD
+  DEBIT_CARD
+  PAYPAL
+  CRYPTO
+}
+
+enum NotificationType {
+  ORDER       // Cập nhật đơn hàng
+  SALE        // Flash sale, khuyến mãi
+  WISHLIST    // Giảm giá sản phẩm trong wishlist
+  PROMOTION   // Tin tức, sản phẩm mới
+  SYSTEM      // Thông báo hệ thống
+}
+
+enum MessageStatus {
+  SENT
+  DELIVERED
+  READ
+}
+
+enum ProductStatus {
+  ACTIVE        // Đang bán (stock > 0)
+  INACTIVE      // Tạm ngưng bán
+  OUT_OF_STOCK  // Hết hàng (stock = 0, tự động)
+  DRAFT         // Chưa publish
+}
+
+enum TrackingStatus {
+  ORDERED
+  CONFIRMED
+  SHIPPED
+  OUT_FOR_DELIVERY
+  DELIVERED
+}
+
+enum CouponType {
+  PERCENTAGE    // Giảm % trên tổng đơn
+  FIXED_AMOUNT  // Giảm số tiền cố định
+}
+
+// ============================================================
+// USER MODELS
+// ============================================================
+
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  password        String?                         // NULL nếu chỉ dùng OAuth
+  firstName       String
+  lastName        String
+  phone           String?
+  avatar          String?                         // URL ảnh (initials tính từ firstName/lastName)
+  userType        UserType  @default(BUYER)
+  isEmailVerified Boolean   @default(false)
+  memberSince     DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  sellerProfile     SellerProfile?
+  settings          UserSettings?
+  sessions          UserSession[]
+  passwordResets    PasswordReset[]
+  oauthAccounts     OAuthAccount[]              // Google / GitHub login
+
+  shippingAddresses ShippingAddress[]
+  paymentMethods    PaymentMethod[]
+
+  cartItems         CartItem[]
+  wishlistItems     WishlistItem[]
+  orders            Order[]
+
+  reviews           Review[]
+  reviewHelpfuls    ReviewHelpful[]
+
+  notifications     Notification[]
+  couponUsages      CouponUsage[]
+
+  buyerConversations  Conversation[] @relation("BuyerConversations")
+  sellerConversations Conversation[] @relation("SellerConversations")
+  sentMessages        Message[]      @relation("MessageSender")
+
+  @@map("users")
+}
+
+// ─── OAuth (Google / GitHub) ─────────────────────────────────
+// LoginPage.tsx:165-192 có nút Google và GitHub
+model OAuthAccount {
+  id                String   @id @default(cuid())
+  userId            String
+  provider          String                        // "google", "github"
+  providerAccountId String                        // ID từ provider
+  accessToken       String?
+  refreshToken      String?
+  expiresAt         DateTime?
+  createdAt         DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("oauth_accounts")
+}
+
+model SellerProfile {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  storeName      String
+  storeSlug      String   @unique                // "audioPro-official"
+  description    String?
+  bannerImage    String?
+  logoImage      String?
+  positiveRating Float    @default(0)            // % đánh giá tích cực (vd: 98%)
+  totalRatings   Int      @default(0)
+  isVerified     Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Stats được TÍNH TOÁN từ bảng Order và Product (không lưu cached)
+  // Dùng Prisma aggregation để lấy: totalRevenue, totalOrders, totalProducts, totalCustomers
+  // Xem query mẫu ở mục 6
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  products Product[]
+
+  @@map("seller_profiles")
+}
+
+// ============================================================
+// PRODUCT MODELS
+// ============================================================
+
+model Category {
+  id        String    @id @default(cuid())
+  name      String    @unique              // "Electronics", "Fashion", "Home & Garden"
+  slug      String    @unique              // "electronics", "fashion"
+  icon      String?                        // Lucide icon name: "Laptop", "Shirt"
+  sortOrder Int       @default(0)
+  createdAt DateTime  @default(now())
+
+  products  Product[]
+
+  // productCount KHÔNG lưu vào DB — dùng _count trong Prisma query
+  // Vì: categories.count hiển thị trong HomePage và ShopPage là số product trong category đó
+
+  @@map("categories")
+}
+
+model Product {
+  id            String        @id @default(cuid())
+  sellerId      String
+  categoryId    String
+  name          String
+  slug          String        @unique
+  brand         String?
+  description   String?
+  price         Decimal       @db.Decimal(10, 2)
+  originalPrice Decimal?      @db.Decimal(10, 2)
+  discount      Int?                               // % giảm giá (25 = 25%)
+  stock         Int           @default(0)
+  sku           String?       @unique
+  status        ProductStatus @default(ACTIVE)
+  featured      Boolean       @default(false)
+  trending      Boolean       @default(false)
+
+  // Badge label tùy chỉnh: "New Arrival", "Best Seller", "Limited Edition"
+  // WishlistPage.tsx:96 - item.product.badge
+  badge         String?
+
+  // Computed fields — cập nhật mỗi khi có review mới/xóa
+  ratingAverage Float         @default(0)
+  reviewCount   Int           @default(0)
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  seller         SellerProfile          @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  category       Category               @relation(fields: [categoryId], references: [id])
+
+  images         ProductImage[]
+  colors         ProductColor[]
+  sizes          ProductSize[]
+  specifications ProductSpecification[]
+
+  cartItems      CartItem[]
+  wishlistItems  WishlistItem[]
+  reviews        Review[]
+  orderItems     OrderItem[]
+  conversations  Conversation[]
+
+  @@index([categoryId])
+  @@index([sellerId])
+  @@index([status, featured])
+  @@index([status, trending])
+  @@index([brand])
+  @@map("products")
+}
+
+model ProductImage {
+  id        String  @id @default(cuid())
+  productId String
+  url       String
+  alt       String?
+  sortOrder Int     @default(0)
+  isPrimary Boolean @default(false)
+
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("product_images")
+}
+
+model ProductColor {
+  id        String  @id @default(cuid())
+  productId String
+  name      String                        // "Black", "Silver", "Navy"
+  hexCode   String?
+
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("product_colors")
+}
+
+model ProductSize {
+  id        String  @id @default(cuid())
+  productId String
+  value     String                        // "S", "M", "L", "7", "8", "42mm"
+
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("product_sizes")
+}
+
+model ProductSpecification {
+  id        String  @id @default(cuid())
+  productId String
+  key       String                        // "Battery Life"
+  value     String                        // "40 hours"
+  sortOrder Int     @default(0)
+
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("product_specifications")
+}
+
+// ============================================================
+// REVIEW MODELS
+// ============================================================
+
+model Review {
+  id        String   @id @default(cuid())
+  productId String
+  userId    String
+  rating    Int                            // 1–5 sao
+  comment   String?
+  helpful   Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product      Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  helpfulVotes ReviewHelpful[]
+
+  @@unique([productId, userId])
+  @@index([productId])
+  @@map("reviews")
+}
+
+model ReviewHelpful {
+  id        String   @id @default(cuid())
+  reviewId  String
+  userId    String
+  createdAt DateTime @default(now())
+
+  review    Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([reviewId, userId])
+  @@map("review_helpfuls")
+}
+
+// ============================================================
+// CART & WISHLIST
+// ============================================================
+
+model CartItem {
+  id            String   @id @default(cuid())
+  userId        String
+  productId     String
+  quantity      Int      @default(1)
+  selectedColor String?
+  selectedSize  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  // KHÔNG dùng @@unique vì selectedColor/selectedSize là nullable
+  // PostgreSQL: NULL != NULL trong unique constraint → 2 rows (userId, productId, NULL, NULL) đều được chèn
+  // Uniqueness được xử lý ở application layer (xem ghi chú 5.2)
+  @@index([userId])
+  @@map("cart_items")
+}
+
+model WishlistItem {
+  id        String   @id @default(cuid())
+  userId    String
+  productId String
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@map("wishlist_items")
+}
+
+// ============================================================
+// COUPON / DISCOUNT CODE
+// CartPage.tsx:150-163 — input "Coupon Code" + nút "Apply"
+// ============================================================
+
+model Coupon {
+  id             String     @id @default(cuid())
+  code           String     @unique            // "SUMMER20", "BLACKFRIDAY50"
+  type           CouponType
+  value          Decimal    @db.Decimal(10, 2) // 20 (= 20%) hoặc 50 (= $50)
+  minOrderAmount Decimal?   @db.Decimal(10, 2) // Đơn hàng tối thiểu để áp dụng
+  maxDiscount    Decimal?   @db.Decimal(10, 2) // Giảm tối đa (dùng cho PERCENTAGE)
+  usageLimit     Int?                          // NULL = không giới hạn
+  usageCount     Int        @default(0)        // Đã dùng bao nhiêu lần
+  validFrom      DateTime
+  validUntil     DateTime?
+  isActive       Boolean    @default(true)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  orders Order[]
+  usages CouponUsage[]
+
+  @@index([code])
+  @@map("coupons")
+}
+
+model CouponUsage {
+  id        String   @id @default(cuid())
+  couponId  String
+  userId    String
+  orderId   String   @unique               // Mỗi đơn chỉ dùng 1 coupon
+  usedAt    DateTime @default(now())
+
+  coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Restrict)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([couponId, userId, orderId])
+  @@map("coupon_usages")
+}
+
+// ============================================================
+// ORDER MODELS
+// ============================================================
+
+model Order {
+  id            String      @id              // Format: "ORD-2025-001234"
+  userId        String
+  status        OrderStatus @default(PENDING)
+
+  subtotal      Decimal     @db.Decimal(10, 2)
+  shippingCost  Decimal     @db.Decimal(10, 2) @default(0)
+  tax           Decimal     @db.Decimal(10, 2) @default(0)
+  total         Decimal     @db.Decimal(10, 2)
+
+  // Coupon discount — CartPage.tsx coupon input
+  couponId      String?
+  couponCode    String?                        // Snapshot code đã dùng
+  couponDiscount Decimal?   @db.Decimal(10, 2) // Số tiền được giảm
+
+  paymentMethod String                         // "card", "paypal", "crypto"
+  paymentRef    String?                        // Mã giao dịch / "ending in 3456"
+
+  // Snapshot địa chỉ giao hàng tại thời điểm đặt
+  shippingFirstName String
+  shippingLastName  String
+  shippingEmail     String
+  shippingPhone     String?
+  shippingStreet    String
+  shippingCity      String
+  shippingState     String
+  shippingZip       String
+  shippingCountry   String
+
+  addressId         String?   // FK tới địa chỉ gốc (có thể NULL nếu đã xóa)
+
+  estimatedDelivery DateTime?
+  notes         String?
+
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  user          User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  address       ShippingAddress? @relation(fields: [addressId], references: [id], onDelete: SetNull)
+  coupon        Coupon?          @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  items         OrderItem[]
+  trackingSteps OrderTracking[]
+  couponUsage   CouponUsage?
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
+  @@map("orders")
+}
+
+model OrderItem {
+  id            String   @id @default(cuid())
+  orderId       String
+  productId     String
+  quantity      Int
+  price         Decimal  @db.Decimal(10, 2)  // Giá tại thời điểm mua
+  selectedColor String?
+  selectedSize  String?
+
+  // Snapshot để đơn hàng cũ không bị ảnh hưởng khi sản phẩm bị sửa/xóa
+  productName   String
+  productImage  String?
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@map("order_items")
+}
+
+model OrderTracking {
+  id          String         @id @default(cuid())
+  orderId     String
+  status      TrackingStatus
+  label       String                               // "Order Placed", "Shipped"
+  description String?
+  completedAt DateTime?
+  isCompleted Boolean        @default(false)
+  isCurrent   Boolean        @default(false)
+  sortOrder   Int            @default(0)           // 0→4
+  createdAt   DateTime       @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("order_trackings")
+}
+
+// ============================================================
+// USER SETTINGS & ADDRESSES
+// ============================================================
+
+model ShippingAddress {
+  id         String   @id @default(cuid())
+  userId     String
+  label      String                               // "Home", "Office"
+  firstName  String
+  lastName   String
+  phone      String?
+  street     String
+  city       String
+  state      String
+  zip        String
+  country    String   @default("United States")
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders Order[]
+
+  @@index([userId])
+  @@map("shipping_addresses")
+}
+
+model PaymentMethod {
+  id             String            @id @default(cuid())
+  userId         String
+  type           PaymentMethodType
+  cardholderName String?
+  lastFour       String?                          // "4242"
+  expiryMonth    Int?
+  expiryYear     Int?
+  brand          String?                          // "Visa", "Mastercard"
+  isDefault      Boolean           @default(false)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("payment_methods")
+}
+
+model UserSettings {
+  id     String @id @default(cuid())
+  userId String @unique
+
+  // Notifications tab — SettingsPage.tsx
+  emailNotifications  Boolean @default(true)
+  orderUpdates        Boolean @default(true)
+  promotionalEmails   Boolean @default(false)
+  priceDropAlerts     Boolean @default(true)
+  pushNotifications   Boolean @default(false)
+
+  // Preferences tab — SettingsPage.tsx
+  language            String  @default("en")     // "en", "es", "fr", "de"
+  currency            String  @default("usd")    // "usd", "eur", "gbp", "jpy"
+  darkMode            Boolean @default(true)
+  showRecommendations Boolean @default(true)
+
+  // Security tab — SettingsPage.tsx
+  twoFactorEnabled    Boolean @default(false)
+  emailVerification   Boolean @default(true)
+
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+model UserSession {
+  id           String   @id @default(cuid())
+  userId       String
+  deviceName   String                             // "Chrome on Windows", "Safari on iPhone"
+  userAgent    String?
+  ipAddress    String?
+  refreshToken String?  @unique
+  lastActiveAt DateTime @default(now())
+  expiresAt    DateTime
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_sessions")
+}
+
+model PasswordReset {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  isUsed    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@map("password_resets")
+}
+
+// ============================================================
+// NEWSLETTER SUBSCRIBER
+// Footer.tsx:129-139 — "Subscribe to our newsletter" form
+// ============================================================
+
+model NewsletterSubscriber {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  userId       String?                             // NULL nếu chưa đăng ký tài khoản
+  isActive     Boolean   @default(true)
+  subscribedAt DateTime  @default(now())
+  unsubscribedAt DateTime?
+
+  @@index([email])
+  @@map("newsletter_subscribers")
+}
+
+// ============================================================
+// NOTIFICATION MODEL
+// ============================================================
+
+model Notification {
+  id          String           @id @default(cuid())
+  userId      String
+  type        NotificationType
+  title       String                               // "Order Shipped"
+  message     String                               // "Your order #ORD-... has been shipped"
+  isRead      Boolean          @default(false)
+  actionPage  String?                              // "orders", "shop", "wishlist", "cart"
+  actionData  Json?                                // { "category": "electronics" }
+  createdAt   DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("notifications")
+}
+
+// ============================================================
+// CHAT / MESSAGING MODELS
+// ============================================================
+
+model Conversation {
+  id               String   @id @default(cuid())
+  buyerId          String
+  sellerId         String
+  productId        String?                         // NULL = chat chung (không về sản phẩm cụ thể)
+
+  lastMessage      String?
+  lastMessageAt    DateTime?
+
+  buyerUnreadCount  Int     @default(0)
+  sellerUnreadCount Int     @default(0)
+
+  isBuyerMuted     Boolean  @default(false)
+  isSellerMuted    Boolean  @default(false)
+  isBuyerArchived  Boolean  @default(false)
+  isSellerArchived Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  buyer    User     @relation("BuyerConversations",  fields: [buyerId],  references: [id], onDelete: Cascade)
+  seller   User     @relation("SellerConversations", fields: [sellerId], references: [id], onDelete: Cascade)
+  product  Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  messages Message[]
+
+  // QUAN TRỌNG: Không dùng @@unique vì productId nullable
+  // PostgreSQL: (buyerId, sellerId, NULL) != (buyerId, sellerId, NULL) trong unique constraint
+  // → Dùng index thường + xử lý uniqueness ở application layer
+  // Hoặc dùng partial index trực tiếp qua migration SQL (xem ghi chú 5.3)
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([buyerId, sellerId])
+  @@map("conversations")
+}
+
+model Message {
+  id             String        @id @default(cuid())
+  conversationId String
+  senderId       String
+  text           String
+  status         MessageStatus @default(SENT)
+  attachmentUrl  String?
+  attachmentType String?                           // "image", "file"
+  isDeleted      Boolean       @default(false)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt(sort: Desc)])
+  @@map("messages")
+}
