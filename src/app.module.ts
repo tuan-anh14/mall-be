@@ -6,6 +6,9 @@ import { DatabaseModule } from '@/database/database.module';
 import { AuthModule } from '@/modules/auth/auth.module';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { StorageModule } from './shared/storage/storage.module';
+import { SellerModule } from './modules/seller/seller.module';
+import { CategoriesModule } from './modules/categories/categories.module';
+import { UploadModule } from './modules/upload/upload.module';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { SessionAuthGuard } from './common/guards/session-auth.guard';
@@ -30,6 +33,9 @@ import { AppService } from './app.service';
     UsersModule,
     AuthModule,
     StorageModule,
+    SellerModule,
+    CategoriesModule,
+    UploadModule,
   ],
   controllers: [AppController],
   providers: [
