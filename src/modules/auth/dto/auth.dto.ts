@@ -57,6 +57,9 @@ export class ResetPasswordDto {
 }
 
 export class AuthUserDto {
+  @ApiProperty({ example: 'cuid12345' })
+  id: string;
+
   @ApiProperty({ example: 'john@example.com' })
   email: string;
 

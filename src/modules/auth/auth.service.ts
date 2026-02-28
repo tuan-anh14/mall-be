@@ -58,6 +58,7 @@ export class AuthService {
 
   buildUserResponse(user: User): AuthUserDto {
     return {
+      id: user.id,
       email: user.email,
       name: `${user.firstName} ${user.lastName}`.trim(),
       userType: user.userType === UserType.SELLER ? 'seller' : 'buyer',
