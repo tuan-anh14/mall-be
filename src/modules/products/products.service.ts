@@ -46,6 +46,13 @@ export class ProductsService {
       badge: product.badge,
       ratingAverage: product.ratingAverage,
       reviewCount: product.reviewCount,
+      // Frontend-compatible aliases
+      rating: product.ratingAverage,
+      reviews: product.reviewCount,
+      image:
+        (product.images ?? []).find((img: any) => img.isPrimary)?.url ??
+        (product.images ?? [])[0]?.url ??
+        null,
       seller: product.seller ?? null,
       images: (product.images ?? []).map((img: any) => ({
         id: img.id,
