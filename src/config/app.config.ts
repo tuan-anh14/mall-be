@@ -3,5 +3,5 @@ export default () => ({
   env: process.env.NODE_ENV || 'development',
   name: process.env.APP_NAME || 'API',
   url: process.env.APP_URL || 'http://localhost:8000',
-  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
+  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
 });

@@ -9,6 +9,13 @@ import { StorageModule } from './shared/storage/storage.module';
 import { SellerModule } from './modules/seller/seller.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { UploadModule } from './modules/upload/upload.module';
+import { ProductsModule } from './modules/products/products.module';
+import { CartModule } from './modules/cart/cart.module';
+import { WishlistModule } from './modules/wishlist/wishlist.module';
+import { OrdersModule } from './modules/orders/orders.module';
+import { ReviewsModule } from './modules/reviews/reviews.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { ConversationsModule } from './modules/conversations/conversations.module';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { SessionAuthGuard } from './common/guards/session-auth.guard';
@@ -25,7 +32,7 @@ import { AppService } from './app.service';
       throttlers: [
         {
           ttl: 60000,
-          limit: 10,
+          limit: 100,
         },
       ],
     }),
@@ -36,6 +43,13 @@ import { AppService } from './app.service';
     SellerModule,
     CategoriesModule,
     UploadModule,
+    ProductsModule,
+    CartModule,
+    WishlistModule,
+    OrdersModule,
+    ReviewsModule,
+    NotificationsModule,
+    ConversationsModule,
   ],
   controllers: [AppController],
   providers: [
