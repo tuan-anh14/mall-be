@@ -33,6 +33,15 @@ export class ProfileService {
     return { user: this.formatUser(user) };
   }
 
+  async deleteAccount(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    await this.prisma.user.delete({ where: { id: userId } });
+
+    return { message: 'Account deleted successfully' };
+  }
+
   async updateProfile(userId: string, dto: UpdateProfileDto) {
     const data: any = {};
     if (dto.firstName !== undefined) data.firstName = dto.firstName;

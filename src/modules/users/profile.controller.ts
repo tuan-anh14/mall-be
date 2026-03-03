@@ -35,6 +35,14 @@ export class ProfileController {
     return this.profileService.getProfile(userId);
   }
 
+  @Delete('me')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Delete current user account' })
+  @ApiResponse({ status: 200, description: 'Account deleted' })
+  deleteAccount(@CurrentUser('id') userId: string) {
+    return this.profileService.deleteAccount(userId);
+  }
+
   @Put('me')
   @ApiOperation({ summary: 'Update current user profile' })
   @ApiResponse({ status: 200, description: 'Updated profile' })
