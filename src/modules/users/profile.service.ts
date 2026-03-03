@@ -1,9 +1,12 @@
 import {
+  BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from '@/database/prisma.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { CreateAddressDto, UpdateAddressDto } from './dto/address.dto';
 import { UpdateSettingsDto } from './dto/settings.dto';
 
@@ -31,6 +34,30 @@ export class ProfileService {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
     return { user: this.formatUser(user) };
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    if (!user.password) {
+      throw new BadRequestException(
+        'Cannot change password for OAuth-only accounts',
+      );
+    }
+
+    const isValid = await bcrypt.compare(dto.currentPassword, user.password);
+    if (!isValid) {
+      throw new BadRequestException('Current password is incorrect');
+    }
+
+    const hashed = await bcrypt.hash(dto.newPassword, 10);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: hashed },
+    });
+
+    return { message: 'Password changed successfully' };
   }
 
   async deleteAccount(userId: string) {
@@ -94,7 +121,11 @@ export class ProfileService {
     return { address };
   }
 
-  async updateAddress(userId: string, addressId: string, dto: UpdateAddressDto) {
+  async updateAddress(
+    userId: string,
+    addressId: string,
+    dto: UpdateAddressDto,
+  ) {
     const existing = await this.prisma.shippingAddress.findFirst({
       where: { id: addressId, userId },
     });
@@ -162,7 +193,9 @@ export class ProfileService {
   // ─── Settings ────────────────────────────────────────────────────────────────
 
   async getSettings(userId: string) {
-    let settings = await this.prisma.userSettings.findUnique({ where: { userId } });
+    let settings = await this.prisma.userSettings.findUnique({
+      where: { userId },
+    });
 
     if (!settings) {
       settings = await this.prisma.userSettings.create({ data: { userId } });

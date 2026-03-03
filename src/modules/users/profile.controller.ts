@@ -18,6 +18,7 @@ import {
 } from '@nestjs/swagger';
 import { ProfileService } from './profile.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { CreateAddressDto, UpdateAddressDto } from './dto/address.dto';
 import { UpdateSettingsDto } from './dto/settings.dto';
 import { CurrentUser } from '@/common/decorators/current-user.decorator';
@@ -51,6 +52,16 @@ export class ProfileController {
     @Body() dto: UpdateProfileDto,
   ) {
     return this.profileService.updateProfile(userId, dto);
+  }
+
+  @Put('me/password')
+  @ApiOperation({ summary: 'Change user password' })
+  @ApiResponse({ status: 200, description: 'Password changed' })
+  changePassword(
+    @CurrentUser('id') userId: string,
+    @Body() dto: ChangePasswordDto,
+  ) {
+    return this.profileService.changePassword(userId, dto);
   }
 
   // ─── Addresses ──────────────────────────────────────────────────────────────
