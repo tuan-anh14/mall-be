@@ -287,6 +287,8 @@ model Review {
   userId    String
   rating    Int                            // 1–5 sao
   comment   String?
+  images    String[] @default([])          // review images URLs
+  emoji     String?                        // reaction emoji icon
   helpful   Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

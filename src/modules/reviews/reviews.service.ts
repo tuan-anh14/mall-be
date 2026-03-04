@@ -19,6 +19,8 @@ export class ReviewsService {
       productId: review.productId,
       rating: review.rating,
       comment: review.comment,
+      images: review.images ?? [],
+      emoji: review.emoji ?? null,
       helpful: review.helpful,
       user: review.user
         ? {
@@ -89,6 +91,20 @@ export class ReviewsService {
     });
     if (!product) throw new NotFoundException('Product not found');
 
+    // Verify user has a delivered order containing this product
+    const deliveredOrder = await this.prisma.order.findFirst({
+      where: {
+        userId,
+        status: 'DELIVERED',
+        items: { some: { productId: dto.productId } },
+      },
+    });
+    if (!deliveredOrder) {
+      throw new BadRequestException(
+        'You can only review products you have purchased and received',
+      );
+    }
+
     const existing = await this.prisma.review.findUnique({
       where: { productId_userId: { productId: dto.productId, userId } },
     });
@@ -100,6 +116,8 @@ export class ReviewsService {
         userId,
         rating: dto.rating,
         comment: dto.comment ?? null,
+        images: dto.images ?? [],
+        emoji: dto.emoji ?? null,
       },
       include: {
         user: { select: { id: true, firstName: true, lastName: true, avatar: true } },
@@ -121,6 +139,8 @@ export class ReviewsService {
       data: {
         ...(dto.rating !== undefined && { rating: dto.rating }),
         ...(dto.comment !== undefined && { comment: dto.comment }),
+        ...(dto.images !== undefined && { images: dto.images }),
+        ...(dto.emoji !== undefined && { emoji: dto.emoji }),
       },
       include: {
         user: { select: { id: true, firstName: true, lastName: true, avatar: true } },
@@ -142,6 +162,24 @@ export class ReviewsService {
     await this.updateProductRating(review.productId);
 
     return {};
+  }
+
+  async checkUserReview(userId: string, productId: string) {
+    const review = await this.prisma.review.findUnique({
+      where: { productId_userId: { productId, userId } },
+    });
+
+    const canReview = !review
+      ? !!(await this.prisma.order.findFirst({
+          where: {
+            userId,
+            status: 'DELIVERED',
+            items: { some: { productId } },
+          },
+        }))
+      : false;
+
+    return { review: review ? this.formatReview(review) : null, canReview };
   }
 
   private async updateProductRating(productId: string) {

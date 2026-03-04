@@ -11,6 +11,7 @@ export class WishlistService {
 
   private formatItem(item: any) {
     const p = item.product;
+    const allImages: string[] = (p.images ?? []).map((img: any) => img.url).filter(Boolean);
     return {
       id: item.id,
       productId: item.productId,
@@ -18,6 +19,8 @@ export class WishlistService {
       product: {
         id: p.id,
         name: p.name,
+        slug: p.slug,
+        description: p.description,
         price: Number(p.price),
         originalPrice: p.originalPrice ? Number(p.originalPrice) : null,
         discount: p.discount,
@@ -27,10 +30,26 @@ export class WishlistService {
         featured: p.featured,
         trending: p.trending,
         ratingAverage: p.ratingAverage,
+        rating: p.ratingAverage,
         reviewCount: p.reviewCount,
+        reviews: p.reviewCount,
         category: p.category?.name ?? null,
         brand: p.brand,
-        image: p.images?.[0]?.url ?? null,
+        image: allImages[0] ?? null,
+        images: allImages,
+        colors: (p.colors ?? []).map((c: any) => c.name),
+        sizes: (p.sizes ?? []).map((s: any) => s.value),
+        specifications: Object.fromEntries(
+          (p.specifications ?? []).map((s: any) => [s.key, s.value])
+        ),
+        seller: p.seller
+          ? {
+              id: p.seller.id,
+              storeName: p.seller.storeName,
+              storeSlug: p.seller.storeSlug,
+              userId: p.seller.userId,
+            }
+          : null,
       },
     };
   }
@@ -42,7 +61,11 @@ export class WishlistService {
         product: {
           include: {
             category: { select: { id: true, name: true } },
-            images: { where: { isPrimary: true }, take: 1 },
+            images: { orderBy: { isPrimary: 'desc' } },
+            colors: true,
+            sizes: true,
+            specifications: { orderBy: { sortOrder: 'asc' } },
+            seller: { select: { id: true, storeName: true, storeSlug: true, userId: true } },
           },
         },
       },

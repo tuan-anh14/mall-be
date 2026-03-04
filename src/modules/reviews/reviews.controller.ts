@@ -42,6 +42,17 @@ export class ReviewsController {
     return this.reviewsService.getProductReviews(productId, query);
   }
 
+  @Get('products/:productId/check')
+  @ApiOperation({ summary: 'Check if current user can review a product' })
+  @ApiParam({ name: 'productId', type: String })
+  @ApiResponse({ status: 200, description: 'Review eligibility' })
+  checkUserReview(
+    @CurrentUser('id') userId: string,
+    @Param('productId') productId: string,
+  ) {
+    return this.reviewsService.checkUserReview(userId, productId);
+  }
+
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a product review' })
