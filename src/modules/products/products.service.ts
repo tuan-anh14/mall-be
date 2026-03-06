@@ -8,6 +8,7 @@ const PRODUCT_INCLUDE = {
   seller: {
     select: {
       id: true,
+      userId: true,
       storeName: true,
       storeSlug: true,
       isVerified: true,
