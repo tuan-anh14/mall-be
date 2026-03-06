@@ -386,10 +386,8 @@ export class OrdersService {
         });
       }
 
-      // Clear cart if items came from cart
-      if (!dto.items || dto.items.length === 0) {
-        await tx.cartItem.deleteMany({ where: { userId } });
-      }
+      // Always clear the user's cart after placing an order
+      await tx.cartItem.deleteMany({ where: { userId } });
 
       return created.id;
     });
