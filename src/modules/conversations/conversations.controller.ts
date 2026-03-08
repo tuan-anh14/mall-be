@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -68,5 +69,19 @@ export class ConversationsController {
     @Body() dto: SendMessageDto,
   ) {
     return this.conversationsService.sendMessage(userId, conversationId, dto);
+  }
+
+  @Delete(':id/messages/:msgId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Delete a message (only for current user)' })
+  @ApiParam({ name: 'id', type: String })
+  @ApiParam({ name: 'msgId', type: String })
+  @ApiResponse({ status: 200, description: 'Message deleted' })
+  deleteMessage(
+    @CurrentUser('id') userId: string,
+    @Param('id') conversationId: string,
+    @Param('msgId') messageId: string,
+  ) {
+    return this.conversationsService.deleteMessage(userId, conversationId, messageId);
   }
 }

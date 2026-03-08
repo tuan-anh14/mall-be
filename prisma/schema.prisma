@@ -676,8 +676,10 @@ model Message {
   status         MessageStatus @default(SENT)
   attachmentUrl  String?
   attachmentType String?                           // "image", "file"
-  isDeleted      Boolean       @default(false)
-  createdAt      DateTime      @default(now())
+  isDeleted        Boolean       @default(false)
+  deletedForBuyer  Boolean       @default(false)
+  deletedForSeller Boolean       @default(false)
+  createdAt        DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)

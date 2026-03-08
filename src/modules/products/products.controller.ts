@@ -22,6 +22,15 @@ export class ProductsController {
     return this.productsService.findAll(query);
   }
 
+  // Must be before /:id to avoid being matched as product ID
+  @Get('sellers/:userId')
+  @ApiOperation({ summary: 'Get seller profile and their products' })
+  @ApiParam({ name: 'userId', type: String })
+  @ApiResponse({ status: 200, description: 'Seller profile with products' })
+  findSellerProfile(@Param('userId') userId: string) {
+    return this.productsService.findSellerProfile(userId);
+  }
+
   // Must be before /:id to avoid "related" being matched as a product ID
   @Get(':id/related')
   @ApiOperation({ summary: 'Get related products' })

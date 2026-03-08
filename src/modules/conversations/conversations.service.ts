@@ -160,9 +160,12 @@ export class ConversationsService {
       throw new ForbiddenException('Access denied');
     }
 
+    const isBuyer = conversation.buyerId === userId;
+    const deletedFilter = isBuyer ? { deletedForBuyer: false } : { deletedForSeller: false };
+
     const [messages, total] = await Promise.all([
       this.prisma.message.findMany({
-        where: { conversationId, isDeleted: false },
+        where: { conversationId, isDeleted: false, ...deletedFilter },
         include: {
           sender: { select: { id: true, firstName: true, lastName: true, avatar: true } },
         },
@@ -176,7 +179,6 @@ export class ConversationsService {
     ]);
 
     // Mark messages as read for current user
-    const isBuyer = conversation.buyerId === userId;
     if (isBuyer && conversation.buyerUnreadCount > 0) {
       await this.prisma.conversation.update({
         where: { id: conversationId },
@@ -268,5 +270,30 @@ export class ConversationsService {
         createdAt: message.createdAt,
       },
     };
+  }
+
+  async deleteMessage(userId: string, conversationId: string, messageId: string) {
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+    });
+
+    if (!conversation) throw new NotFoundException('Conversation not found');
+
+    if (conversation.buyerId !== userId && conversation.sellerId !== userId) {
+      throw new ForbiddenException('Access denied');
+    }
+
+    const message = await this.prisma.message.findFirst({
+      where: { id: messageId, conversationId },
+    });
+
+    if (!message) throw new NotFoundException('Message not found');
+
+    const isBuyer = conversation.buyerId === userId;
+    const data = isBuyer ? { deletedForBuyer: true } : { deletedForSeller: true };
+
+    await this.prisma.message.update({ where: { id: messageId }, data });
+
+    return { success: true, message: 'Message deleted' };
   }
 }

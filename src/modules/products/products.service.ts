@@ -202,4 +202,44 @@ export class ProductsService {
 
     return { products: products.map((p) => this.formatProduct(p)) };
   }
+
+  async findSellerProfile(userId: string) {
+    const sellerProfile = await this.prisma.sellerProfile.findUnique({
+      where: { userId },
+      include: {
+        user: { select: { id: true, firstName: true, lastName: true, avatar: true, createdAt: true } },
+      },
+    });
+
+    if (!sellerProfile) throw new NotFoundException('Seller not found');
+
+    const products = await this.prisma.product.findMany({
+      where: { sellerId: sellerProfile.id, status: ProductStatus.ACTIVE },
+      include: PRODUCT_INCLUDE,
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    });
+
+    const totalProducts = await this.prisma.product.count({
+      where: { sellerId: sellerProfile.id, status: ProductStatus.ACTIVE },
+    });
+
+    return {
+      seller: {
+        id: sellerProfile.id,
+        userId: sellerProfile.userId,
+        storeName: sellerProfile.storeName,
+        storeSlug: sellerProfile.storeSlug,
+        description: sellerProfile.description,
+        bannerImage: sellerProfile.bannerImage,
+        logoImage: sellerProfile.logoImage,
+        positiveRating: sellerProfile.positiveRating,
+        totalRatings: sellerProfile.totalRatings,
+        isVerified: sellerProfile.isVerified,
+        memberSince: sellerProfile.createdAt,
+        totalProducts,
+      },
+      products: products.map((p) => this.formatProduct(p)),
+    };
+  }
 }
