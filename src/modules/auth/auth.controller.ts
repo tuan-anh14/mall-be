@@ -28,7 +28,9 @@ import {
   ForgotPasswordDto,
   ResetPasswordDto,
   AuthUserDto,
+  BecomeSellerDto,
 } from './dto/auth.dto';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import {
   SESSION_COOKIE,
@@ -136,6 +138,18 @@ export class AuthController {
   ): Promise<{ message: string }> {
     await this.authService.resetPassword(dto);
     return { message: 'Password reset successfully' };
+  }
+
+  @Post('become-seller')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Request to become a seller' })
+  @ApiResponse({ status: 200, description: 'Request sent successfully' })
+  async becomeSeller(
+    @Body() dto: BecomeSellerDto,
+    @Req() req: Request,
+  ): Promise<{ message: string }> {
+    const user = req.user as User;
+    return this.authService.becomeSellerRequest(user.id, dto);
   }
 
   // ─── Google OAuth ───────────────────────────────────────────────────────────

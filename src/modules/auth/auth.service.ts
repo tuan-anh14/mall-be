@@ -4,6 +4,7 @@ import {
   Inject,
   Injectable,
   UnauthorizedException,
+  ForbiddenException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
@@ -16,6 +17,7 @@ import {
   ForgotPasswordDto,
   ResetPasswordDto,
   AuthUserDto,
+  BecomeSellerDto,
 } from './dto/auth.dto';
 import {
   IUserSessionRepository,
@@ -57,10 +59,14 @@ export class AuthService {
   ) {}
 
   buildUserResponse(user: User): AuthUserDto {
+    let userType: 'buyer' | 'seller' | 'admin' = 'buyer';
+    if (user.userType === UserType.SELLER) userType = 'seller';
+    else if (user.userType === UserType.ADMIN) userType = 'admin';
     return {
+      id: user.id,
       email: user.email,
       name: `${user.firstName} ${user.lastName}`.trim(),
-      userType: user.userType === UserType.SELLER ? 'seller' : 'buyer',
+      userType,
     };
   }
 
@@ -101,36 +107,15 @@ export class AuthService {
 
     const firstName = nameParts[0];
     const lastName = nameParts.slice(1).join(' ');
-    const userType =
-      dto.userType === 'seller' ? UserType.SELLER : UserType.BUYER;
 
-    const user = await this.prisma.$transaction(async (tx) => {
-      const newUser = await tx.user.create({
-        data: {
-          email: dto.email,
-          password: hashedPassword,
-          firstName,
-          lastName,
-          userType,
-        },
-      });
-
-      if (userType === UserType.SELLER) {
-        const base = dto.name
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/^-+|-+$/g, '')
-          .slice(0, 30);
-        await tx.sellerProfile.create({
-          data: {
-            userId: newUser.id,
-            storeName: `${dto.name}'s Store`,
-            storeSlug: `${base}-${newUser.id.slice(-8)}`,
-          },
-        });
-      }
-
-      return newUser;
+    const user = await this.prisma.user.create({
+      data: {
+        email: dto.email,
+        password: hashedPassword,
+        firstName,
+        lastName,
+        userType: UserType.BUYER,
+      },
     });
 
     const sessionId = await this.createSession(user.id, req);
@@ -200,6 +185,38 @@ export class AuthService {
         where: { userId: reset.userId },
       }),
     ]);
+  }
+
+  async becomeSellerRequest(
+    userId: string,
+    dto: BecomeSellerDto,
+  ): Promise<{ message: string }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { userType: true },
+    });
+    if (!user) throw new UnauthorizedException();
+    if (user.userType === UserType.SELLER) {
+      throw new BadRequestException('Bạn đã là người bán');
+    }
+    if (user.userType === UserType.ADMIN) {
+      throw new ForbiddenException('Admin không thể đăng ký trở thành seller');
+    }
+
+    const existing = await this.prisma.sellerRequest.findUnique({
+      where: { userId },
+    });
+    if (existing && existing.status === 'PENDING') {
+      throw new ConflictException('Bạn đã có yêu cầu đang chờ duyệt');
+    }
+
+    await this.prisma.sellerRequest.upsert({
+      where: { userId },
+      create: { userId, message: dto.message, status: 'PENDING' },
+      update: { message: dto.message, status: 'PENDING', adminNote: null },
+    });
+
+    return { message: 'Yêu cầu trở thành người bán đã được gửi thành công' };
   }
 
   async handleOAuthCallback(

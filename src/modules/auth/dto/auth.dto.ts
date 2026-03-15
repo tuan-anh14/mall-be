@@ -3,9 +3,9 @@ import {
   IsString,
   MinLength,
   IsNotEmpty,
-  IsEnum,
+  IsOptional,
 } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class RegisterDto {
   @ApiProperty({ example: 'John Doe' })
@@ -21,10 +21,6 @@ export class RegisterDto {
   @IsString()
   @MinLength(6)
   password: string;
-
-  @ApiProperty({ enum: ['buyer', 'seller'], example: 'buyer' })
-  @IsEnum(['buyer', 'seller'])
-  userType: 'buyer' | 'seller';
 }
 
 export class LoginDto {
@@ -56,6 +52,13 @@ export class ResetPasswordDto {
   password: string;
 }
 
+export class BecomeSellerDto {
+  @ApiPropertyOptional({ example: 'Tôi muốn bán hàng điện tử' })
+  @IsString()
+  @IsOptional()
+  message?: string;
+}
+
 export class AuthUserDto {
   @ApiProperty({ example: 'john@example.com' })
   email: string;
@@ -63,6 +66,9 @@ export class AuthUserDto {
   @ApiProperty({ example: 'John Doe' })
   name: string;
 
-  @ApiProperty({ enum: ['buyer', 'seller'], example: 'buyer' })
-  userType: 'buyer' | 'seller';
+  @ApiProperty({ enum: ['buyer', 'seller', 'admin'], example: 'buyer' })
+  userType: 'buyer' | 'seller' | 'admin';
+
+  @ApiPropertyOptional()
+  id?: string;
 }

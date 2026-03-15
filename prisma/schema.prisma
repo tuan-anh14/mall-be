@@ -20,6 +20,13 @@ datasource db {
 enum UserType {
   BUYER
   SELLER
+  ADMIN
+}
+
+enum SellerRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 enum OrderStatus {
@@ -116,6 +123,8 @@ model User {
   sellerConversations Conversation[] @relation("SellerConversations")
   sentMessages        Message[]      @relation("MessageSender")
 
+  sellerRequest SellerRequest?
+
   @@map("users")
 }
 
@@ -159,6 +168,20 @@ model SellerProfile {
   products Product[]
 
   @@map("seller_profiles")
+}
+
+model SellerRequest {
+  id        String              @id @default(cuid())
+  userId    String              @unique
+  status    SellerRequestStatus @default(PENDING)
+  message   String?
+  adminNote String?
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("seller_requests")
 }
 
 // ============================================================

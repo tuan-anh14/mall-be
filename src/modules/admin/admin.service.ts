@@ -1,0 +1,435 @@
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  BadRequestException,
+} from '@nestjs/common';
+import { PrismaService } from '@/database/prisma.service';
+import { UserType } from 'generated/prisma/client';
+import {
+  CreateCategoryDto,
+  UpdateCategoryDto,
+  CreateCouponDto,
+  UpdateCouponDto,
+  ReviewSellerRequestDto,
+} from './dto/admin.dto';
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+@Injectable()
+export class AdminService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  // ─── ACCOUNTS ──────────────────────────────────────────────────────────────
+
+  async getAccounts(page = 1, limit = 20, search?: string) {
+    const skip = (page - 1) * limit;
+    const where = search
+      ? {
+          OR: [
+            { email: { contains: search, mode: 'insensitive' as const } },
+            { firstName: { contains: search, mode: 'insensitive' as const } },
+            { lastName: { contains: search, mode: 'insensitive' as const } },
+          ],
+        }
+      : {};
+
+    const [users, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          userType: true,
+          avatar: true,
+          isEmailVerified: true,
+          memberSince: true,
+          createdAt: true,
+          sellerProfile: {
+            select: { storeName: true, isVerified: true },
+          },
+          sellerRequest: {
+            select: { status: true, createdAt: true },
+          },
+          _count: {
+            select: { orders: true, reviews: true },
+          },
+        },
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    return { users, total, page, limit };
+  }
+
+  async getAccountById(id: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        userType: true,
+        avatar: true,
+        phone: true,
+        isEmailVerified: true,
+        memberSince: true,
+        createdAt: true,
+        sellerProfile: true,
+        sellerRequest: true,
+        _count: {
+          select: { orders: true, reviews: true, sessions: true },
+        },
+      },
+    });
+    if (!user) throw new NotFoundException('Người dùng không tồn tại');
+    return user;
+  }
+
+  async banAccount(id: string) {
+    const user = await this.prisma.user.findUnique({ where: { id }, select: { userType: true } });
+    if (!user) throw new NotFoundException('Người dùng không tồn tại');
+    if (user.userType === UserType.ADMIN) {
+      throw new BadRequestException('Không thể khóa tài khoản Admin');
+    }
+    // Deactivate all sessions to force logout
+    await this.prisma.userSession.updateMany({
+      where: { userId: id },
+      data: { isActive: false },
+    });
+    return { message: 'Đã khóa tài khoản người dùng' };
+  }
+
+  async deleteAccount(id: string) {
+    const user = await this.prisma.user.findUnique({ where: { id }, select: { userType: true } });
+    if (!user) throw new NotFoundException('Người dùng không tồn tại');
+    if (user.userType === UserType.ADMIN) {
+      throw new BadRequestException('Không thể xóa tài khoản Admin');
+    }
+    await this.prisma.user.delete({ where: { id } });
+    return { message: 'Đã xóa tài khoản người dùng' };
+  }
+
+  // ─── CATEGORIES ────────────────────────────────────────────────────────────
+
+  async getCategories() {
+    return this.prisma.category.findMany({
+      orderBy: { sortOrder: 'asc' },
+      include: { _count: { select: { products: true } } },
+    });
+  }
+
+  async createCategory(dto: CreateCategoryDto) {
+    try {
+      return await this.prisma.category.create({
+        data: {
+          name: dto.name,
+          slug: dto.slug,
+          icon: dto.icon,
+          sortOrder: dto.sortOrder ?? 0,
+        },
+      });
+    } catch (e: any) {
+      if (e?.code === 'P2002') throw new ConflictException('Danh mục đã tồn tại');
+      throw e;
+    }
+  }
+
+  async updateCategory(id: string, dto: UpdateCategoryDto) {
+    try {
+      return await this.prisma.category.update({
+        where: { id },
+        data: dto,
+      });
+    } catch (e: any) {
+      if (e?.code === 'P2025') throw new NotFoundException('Danh mục không tồn tại');
+      if (e?.code === 'P2002') throw new ConflictException('Tên hoặc slug đã tồn tại');
+      throw e;
+    }
+  }
+
+  async deleteCategory(id: string) {
+    const count = await this.prisma.product.count({ where: { categoryId: id } });
+    if (count > 0) {
+      throw new BadRequestException(`Không thể xóa danh mục đang có ${count} sản phẩm`);
+    }
+    try {
+      await this.prisma.category.delete({ where: { id } });
+    } catch (e: any) {
+      if (e?.code === 'P2025') throw new NotFoundException('Danh mục không tồn tại');
+      throw e;
+    }
+    return { message: 'Đã xóa danh mục' };
+  }
+
+  // ─── COUPONS ───────────────────────────────────────────────────────────────
+
+  async getCoupons(page = 1, limit = 20) {
+    const skip = (page - 1) * limit;
+    const [coupons, total] = await Promise.all([
+      this.prisma.coupon.findMany({
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: { _count: { select: { usages: true } } },
+      }),
+      this.prisma.coupon.count(),
+    ]);
+    return { coupons, total, page, limit };
+  }
+
+  async createCoupon(dto: CreateCouponDto) {
+    try {
+      return await this.prisma.coupon.create({
+        data: {
+          code: dto.code.toUpperCase(),
+          type: dto.type,
+          value: dto.value,
+          minOrderAmount: dto.minOrderAmount,
+          maxDiscount: dto.maxDiscount,
+          usageLimit: dto.usageLimit,
+          validFrom: new Date(dto.validFrom),
+          validUntil: dto.validUntil ? new Date(dto.validUntil) : null,
+          isActive: dto.isActive ?? true,
+        },
+      });
+    } catch (e: any) {
+      if (e?.code === 'P2002') throw new ConflictException('Mã giảm giá đã tồn tại');
+      throw e;
+    }
+  }
+
+  async updateCoupon(id: string, dto: UpdateCouponDto) {
+    try {
+      return await this.prisma.coupon.update({
+        where: { id },
+        data: {
+          ...dto,
+          code: dto.code?.toUpperCase(),
+          validFrom: dto.validFrom ? new Date(dto.validFrom) : undefined,
+          validUntil: dto.validUntil ? new Date(dto.validUntil) : undefined,
+        },
+      });
+    } catch (e: any) {
+      if (e?.code === 'P2025') throw new NotFoundException('Mã giảm giá không tồn tại');
+      if (e?.code === 'P2002') throw new ConflictException('Mã giảm giá đã tồn tại');
+      throw e;
+    }
+  }
+
+  async deleteCoupon(id: string) {
+    try {
+      await this.prisma.coupon.delete({ where: { id } });
+    } catch (e: any) {
+      if (e?.code === 'P2025') throw new NotFoundException('Mã giảm giá không tồn tại');
+      if (e?.code === 'P2003') {
+        throw new BadRequestException('Không thể xóa mã giảm giá đã được sử dụng');
+      }
+      throw e;
+    }
+    return { message: 'Đã xóa mã giảm giá' };
+  }
+
+  // ─── REVIEWS ───────────────────────────────────────────────────────────────
+
+  async getReviews(page = 1, limit = 20, productId?: string) {
+    const skip = (page - 1) * limit;
+    const where = productId ? { productId } : {};
+    const [reviews, total] = await Promise.all([
+      this.prisma.review.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: { select: { id: true, firstName: true, lastName: true, email: true, avatar: true } },
+          product: { select: { id: true, name: true, images: { where: { isPrimary: true }, take: 1 } } },
+        },
+      }),
+      this.prisma.review.count({ where }),
+    ]);
+    return { reviews, total, page, limit };
+  }
+
+  async deleteReview(id: string) {
+    const review = await this.prisma.review.findUnique({
+      where: { id },
+      select: { productId: true },
+    });
+    if (!review) throw new NotFoundException('Review không tồn tại');
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.review.delete({ where: { id } });
+      const agg = await tx.review.aggregate({
+        where: { productId: review.productId },
+        _avg: { rating: true },
+        _count: { rating: true },
+      });
+      await tx.product.update({
+        where: { id: review.productId },
+        data: {
+          ratingAverage: agg._avg.rating ?? 0,
+          reviewCount: agg._count.rating,
+        },
+      });
+    });
+
+    return { message: 'Đã xóa review' };
+  }
+
+  // ─── SELLER REQUESTS ───────────────────────────────────────────────────────
+
+  async getSellerRequests(status?: string) {
+    const where = status ? { status: status as any } : {};
+    return this.prisma.sellerRequest.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            avatar: true,
+            memberSince: true,
+            _count: { select: { orders: true } },
+          },
+        },
+      },
+    });
+  }
+
+  async reviewSellerRequest(id: string, dto: ReviewSellerRequestDto) {
+    const request = await this.prisma.sellerRequest.findUnique({
+      where: { id },
+      include: { user: true },
+    });
+    if (!request) throw new NotFoundException('Yêu cầu không tồn tại');
+    if (request.status !== 'PENDING') {
+      throw new BadRequestException('Yêu cầu này đã được xử lý');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.sellerRequest.update({
+        where: { id },
+        data: { status: dto.status, adminNote: dto.adminNote },
+      });
+
+      if (dto.status === 'APPROVED') {
+        await tx.user.update({
+          where: { id: request.userId },
+          data: { userType: UserType.SELLER },
+        });
+
+        // Create seller profile
+        const base = `${request.user.firstName} ${request.user.lastName}`
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 30);
+        await tx.sellerProfile.create({
+          data: {
+            userId: request.userId,
+            storeName: `${request.user.firstName} ${request.user.lastName}'s Store`,
+            storeSlug: `${base}-${request.userId.slice(-8)}`,
+          },
+        });
+
+        // Deactivate sessions so user has to re-login to get new userType
+        await tx.userSession.updateMany({
+          where: { userId: request.userId },
+          data: { isActive: false },
+        });
+      }
+    });
+
+    return {
+      message: dto.status === 'APPROVED'
+        ? 'Đã phê duyệt yêu cầu trở thành người bán'
+        : 'Đã từ chối yêu cầu trở thành người bán',
+    };
+  }
+
+  // ─── STATISTICS ────────────────────────────────────────────────────────────
+
+  async getStats() {
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const [
+      totalUsers,
+      totalSellers,
+      totalBuyers,
+      totalProducts,
+      totalOrders,
+      revenueRows,
+      newUsersThisMonth,
+      pendingSellerRequests,
+      totalCategories,
+      totalCoupons,
+    ] = await Promise.all([
+      this.prisma.user.count(),
+      this.prisma.user.count({ where: { userType: UserType.SELLER } }),
+      this.prisma.user.count({ where: { userType: UserType.BUYER } }),
+      this.prisma.product.count(),
+      this.prisma.order.count(),
+      this.prisma.$queryRaw<{ revenue: string }[]>`
+        SELECT COALESCE(SUM(total), 0)::text AS revenue FROM orders
+      `,
+      this.prisma.user.count({ where: { createdAt: { gte: thirtyDaysAgo } } }),
+      this.prisma.sellerRequest.count({ where: { status: 'PENDING' } }),
+      this.prisma.category.count(),
+      this.prisma.coupon.count(),
+    ]);
+
+    return {
+      totalUsers,
+      totalSellers,
+      totalBuyers,
+      totalProducts,
+      totalOrders,
+      totalRevenue: Math.round(Number(revenueRows[0]?.revenue ?? 0)),
+      newUsersThisMonth,
+      pendingSellerRequests,
+      totalCategories,
+      totalCoupons,
+    };
+  }
+
+  async getSalesData() {
+    const year = new Date().getFullYear();
+    const startOfYear = new Date(year, 0, 1);
+    const endOfYear = new Date(year + 1, 0, 1);
+
+    const rows = await this.prisma.$queryRaw<{ month: number; revenue: string; orders: string; users: string }[]>`
+      SELECT
+        EXTRACT(MONTH FROM o."createdAt")::int   AS month,
+        COALESCE(SUM(o.total), 0)::text          AS revenue,
+        COUNT(DISTINCT o.id)::text               AS orders,
+        COUNT(DISTINCT o."userId")::text         AS users
+      FROM orders o
+      WHERE o."createdAt" >= ${startOfYear}
+        AND o."createdAt" < ${endOfYear}
+      GROUP BY EXTRACT(MONTH FROM o."createdAt")
+    `;
+
+    const dataByMonth = new Map(rows.map((r) => [r.month, r]));
+
+    return MONTHS.map((month, index) => {
+      const row = dataByMonth.get(index + 1);
+      return {
+        month,
+        revenue: row ? Math.round(Number(row.revenue)) : 0,
+        orders: row ? Number(row.orders) : 0,
+        users: row ? Number(row.users) : 0,
+      };
+    });
+  }
+}
