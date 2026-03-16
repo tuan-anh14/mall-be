@@ -236,14 +236,16 @@ export class AdminService {
 
   async getCoupons(page = 1, limit = 20) {
     const skip = (page - 1) * limit;
+    const where = { sellerId: null };
     const [coupons, total] = await Promise.all([
       this.prisma.coupon.findMany({
+        where,
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: { _count: { select: { usages: true } } },
       }),
-      this.prisma.coupon.count(),
+      this.prisma.coupon.count({ where }),
     ]);
     return { coupons, total, page, limit };
   }
