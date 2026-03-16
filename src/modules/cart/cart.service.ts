@@ -159,21 +159,22 @@ export class CartService {
   async applyCoupon(userId: string, code: string) {
     const coupon = await this.prisma.coupon.findUnique({
       where: { code: code.toUpperCase() },
+      include: { seller: true },
     });
 
     if (!coupon || !coupon.isActive) {
-      throw new BadRequestException('Invalid or expired coupon code');
+      throw new BadRequestException('Mã giảm giá không hợp lệ hoặc đã hết hạn');
     }
 
     const now = new Date();
     if (now < coupon.validFrom) {
-      throw new BadRequestException('Coupon is not yet valid');
+      throw new BadRequestException('Mã giảm giá chưa có hiệu lực');
     }
     if (coupon.validUntil && now > coupon.validUntil) {
-      throw new BadRequestException('Coupon has expired');
+      throw new BadRequestException('Mã giảm giá đã hết hạn');
     }
     if (coupon.usageLimit !== null && coupon.usageCount >= coupon.usageLimit) {
-      throw new BadRequestException('Coupon usage limit reached');
+      throw new BadRequestException('Mã giảm giá đã đạt giới hạn sử dụng');
     }
 
     // Check if user already used this coupon
@@ -181,27 +182,44 @@ export class CartService {
       where: { couponId: coupon.id, userId },
     });
     if (alreadyUsed) {
-      throw new BadRequestException('You have already used this coupon');
+      throw new BadRequestException('Bạn đã sử dụng mã giảm giá này rồi');
     }
 
-    // Get cart to calculate discount
+    // Get cart items with product and seller info
     const items = await this.prisma.cartItem.findMany({
       where: { userId },
-      include: { product: true },
+      include: {
+        product: {
+          include: { seller: true },
+        },
+      },
     });
 
     if (items.length === 0) {
-      throw new BadRequestException('Cart is empty');
+      throw new BadRequestException('Giỏ hàng trống');
     }
 
-    const subtotal = items.reduce(
+    // If seller-specific coupon, only count applicable items
+    let applicableItems = items;
+    if (coupon.sellerId) {
+      applicableItems = items.filter(
+        (item) => item.product.sellerId === coupon.sellerId,
+      );
+      if (applicableItems.length === 0) {
+        throw new BadRequestException(
+          `Mã giảm giá này chỉ áp dụng cho sản phẩm của shop "${coupon.seller?.storeName || ''}"`,
+        );
+      }
+    }
+
+    const subtotal = applicableItems.reduce(
       (sum, item) => sum + Number(item.product.price) * item.quantity,
       0,
     );
 
     if (coupon.minOrderAmount && subtotal < Number(coupon.minOrderAmount)) {
       throw new BadRequestException(
-        `Minimum order amount is $${Number(coupon.minOrderAmount).toFixed(2)}`,
+        `Đơn hàng tối thiểu là $${Number(coupon.minOrderAmount).toFixed(2)}`,
       );
     }
 
@@ -230,6 +248,8 @@ export class CartService {
         code: coupon.code,
         type: coupon.type,
         value: Number(coupon.value),
+        sellerId: coupon.sellerId,
+        sellerName: coupon.seller?.storeName ?? null,
       },
       cart: this.buildCartSummary(fullItems, discount),
     };

@@ -7,6 +7,9 @@ import {
   Param,
   Put,
   Query,
+  Req,
+  Res,
+  Sse,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -15,7 +18,11 @@ import {
   ApiUnauthorizedResponse,
   ApiParam,
 } from '@nestjs/swagger';
+import { Request, Response } from 'express';
+import { Observable } from 'rxjs';
+import { User } from 'generated/prisma/client';
 import { NotificationsService } from './notifications.service';
+import { NotificationSseService } from './notification-sse.service';
 import { QueryNotificationsDto } from './dto/query-notifications.dto';
 import { CurrentUser } from '@/common/decorators/current-user.decorator';
 
@@ -23,7 +30,19 @@ import { CurrentUser } from '@/common/decorators/current-user.decorator';
 @Controller('notifications')
 @ApiUnauthorizedResponse({ description: 'Unauthorized' })
 export class NotificationsController {
-  constructor(private readonly notificationsService: NotificationsService) {}
+  constructor(
+    private readonly notificationsService: NotificationsService,
+    private readonly sseService: NotificationSseService,
+  ) {}
+
+  @Sse('stream')
+  @ApiOperation({ summary: 'SSE stream for real-time notifications' })
+  stream(@Req() req: Request, @Res() res: Response): Observable<MessageEvent> {
+    const user = req.user as User;
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('X-Accel-Buffering', 'no');
+    return this.sseService.streamForUser(user.id);
+  }
 
   @Get()
   @ApiOperation({ summary: 'Get notifications' })

@@ -71,4 +71,7 @@ export class AuthUserDto {
 
   @ApiPropertyOptional()
   id?: string;
+
+  @ApiPropertyOptional({ enum: ['PENDING', 'APPROVED', 'REJECTED'] })
+  sellerRequestStatus?: 'PENDING' | 'APPROVED' | 'REJECTED' | null;
 }

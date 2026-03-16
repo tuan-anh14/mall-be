@@ -4,35 +4,95 @@ import {
   ConflictException,
   BadRequestException,
 } from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from '@/database/prisma.service';
-import { UserType } from 'generated/prisma/client';
+import { NotificationType, ProductStatus, UserType } from 'generated/prisma/client';
 import {
+  CreateAdminAccountDto,
   CreateCategoryDto,
   UpdateCategoryDto,
   CreateCouponDto,
   UpdateCouponDto,
   ReviewSellerRequestDto,
 } from './dto/admin.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
+
+  // ─── AUDIT LOG ─────────────────────────────────────────────────────────────
+
+  async logAction(adminId: string, action: string, resource: string, resourceId?: string, details?: any) {
+    try {
+      await this.prisma.auditLog.create({
+        data: { adminId, action, resource, resourceId, details },
+      });
+    } catch {
+      // Non-blocking: don't fail the original operation if audit log fails
+    }
+  }
+
+  async getAuditLogs(page = 1, limit = 50, adminId?: string, action?: string, resource?: string) {
+    const skip = (page - 1) * limit;
+    const where: any = {};
+    if (adminId) where.adminId = adminId;
+    if (action) where.action = action;
+    if (resource) where.resource = resource;
+    const [logs, total] = await Promise.all([
+      this.prisma.auditLog.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          admin: { select: { id: true, firstName: true, lastName: true, email: true } },
+        },
+      }),
+      this.prisma.auditLog.count({ where }),
+    ]);
+    return { logs, total, page, limit };
+  }
 
   // ─── ACCOUNTS ──────────────────────────────────────────────────────────────
 
-  async getAccounts(page = 1, limit = 20, search?: string) {
+  async createAccount(dto: CreateAdminAccountDto) {
+    const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    if (existing) throw new ConflictException('Email đã tồn tại');
+    const hashedPassword = await bcrypt.hash(dto.password, 10);
+    const user = await this.prisma.user.create({
+      data: {
+        email: dto.email,
+        password: hashedPassword,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        userType: dto.userType as UserType ?? UserType.BUYER,
+      },
+      select: {
+        id: true, email: true, firstName: true, lastName: true, userType: true, createdAt: true,
+      },
+    });
+    return user;
+  }
+
+  async getAccounts(page = 1, limit = 20, search?: string, userType?: string) {
     const skip = (page - 1) * limit;
-    const where = search
-      ? {
-          OR: [
-            { email: { contains: search, mode: 'insensitive' as const } },
-            { firstName: { contains: search, mode: 'insensitive' as const } },
-            { lastName: { contains: search, mode: 'insensitive' as const } },
-          ],
-        }
-      : {};
+    const where: any = {};
+    if (search) {
+      where.OR = [
+        { email: { contains: search, mode: 'insensitive' } },
+        { firstName: { contains: search, mode: 'insensitive' } },
+        { lastName: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+    if (userType && ['BUYER', 'SELLER', 'ADMIN'].includes(userType)) {
+      where.userType = userType as UserType;
+    }
 
     const [users, total] = await Promise.all([
       this.prisma.user.findMany({
@@ -121,7 +181,11 @@ export class AdminService {
   async getCategories() {
     return this.prisma.category.findMany({
       orderBy: { sortOrder: 'asc' },
-      include: { _count: { select: { products: true } } },
+      include: {
+        _count: {
+          select: { products: { where: { status: ProductStatus.ACTIVE } } },
+        },
+      },
     });
   }
 
@@ -306,7 +370,7 @@ export class AdminService {
     });
   }
 
-  async reviewSellerRequest(id: string, dto: ReviewSellerRequestDto) {
+  async reviewSellerRequest(id: string, dto: ReviewSellerRequestDto, adminId?: string) {
     const request = await this.prisma.sellerRequest.findUnique({
       where: { id },
       include: { user: true },
@@ -349,6 +413,25 @@ export class AdminService {
         });
       }
     });
+
+    // Send notification to user
+    await this.notificationsService.createNotification({
+      userId: request.userId,
+      type: NotificationType.SYSTEM,
+      title: dto.status === 'APPROVED' ? 'Yêu cầu bán hàng được chấp thuận' : 'Yêu cầu bán hàng bị từ chối',
+      message: dto.status === 'APPROVED'
+        ? 'Chúc mừng! Yêu cầu trở thành người bán của bạn đã được phê duyệt. Vui lòng đăng nhập lại.'
+        : `Yêu cầu của bạn đã bị từ chối.${dto.adminNote ? ` Lý do: ${dto.adminNote}` : ''}`,
+      actionPage: dto.status === 'APPROVED' ? 'dashboard' : 'profile',
+    });
+
+    // Audit log
+    if (adminId) {
+      await this.logAction(adminId, dto.status === 'APPROVED' ? 'APPROVE' : 'REJECT', 'seller_request', id, {
+        userId: request.userId,
+        adminNote: dto.adminNote,
+      });
+    }
 
     return {
       message: dto.status === 'APPROVED'

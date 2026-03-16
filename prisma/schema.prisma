@@ -124,6 +124,7 @@ model User {
   sentMessages        Message[]      @relation("MessageSender")
 
   sellerRequest SellerRequest?
+  auditLogs     AuditLog[]
 
   @@map("users")
 }
@@ -166,8 +167,25 @@ model SellerProfile {
 
   user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   products Product[]
+  coupons  Coupon[]
 
   @@map("seller_profiles")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  adminId    String
+  action     String   // "CREATE" | "UPDATE" | "DELETE" | "APPROVE" | "REJECT" | "BAN"
+  resource   String   // "category" | "coupon" | "account" | "review" | "seller_request"
+  resourceId String?
+  details    Json?
+  createdAt  DateTime @default(now())
+
+  admin User @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@index([createdAt(sort: Desc)])
+  @@map("audit_logs")
 }
 
 model SellerRequest {
@@ -392,13 +410,19 @@ model Coupon {
   validFrom      DateTime
   validUntil     DateTime?
   isActive       Boolean    @default(true)
+
+  // NULL = global (admin-managed, apply to all); set = seller-specific
+  sellerId       String?
+
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 
+  seller SellerProfile? @relation(fields: [sellerId], references: [id], onDelete: Cascade)
   orders Order[]
   usages CouponUsage[]
 
   @@index([code])
+  @@index([sellerId])
   @@map("coupons")
 }
 

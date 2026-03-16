@@ -58,7 +58,7 @@ export class AuthService {
     private readonly oAuthAccountRepository: IOAuthAccountRepository,
   ) {}
 
-  buildUserResponse(user: User): AuthUserDto {
+  buildUserResponse(user: User, sellerRequestStatus?: string | null): AuthUserDto {
     let userType: 'buyer' | 'seller' | 'admin' = 'buyer';
     if (user.userType === UserType.SELLER) userType = 'seller';
     else if (user.userType === UserType.ADMIN) userType = 'admin';
@@ -67,7 +67,17 @@ export class AuthService {
       email: user.email,
       name: `${user.firstName} ${user.lastName}`.trim(),
       userType,
+      sellerRequestStatus: (sellerRequestStatus as any) ?? null,
     };
+  }
+
+  async buildUserResponseWithRequest(userId: string): Promise<AuthUserDto> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { sellerRequest: { select: { status: true } } },
+    });
+    if (!user) throw new UnauthorizedException();
+    return this.buildUserResponse(user, (user as any).sellerRequest?.status);
   }
 
   private getDeviceName(req: Request): string {

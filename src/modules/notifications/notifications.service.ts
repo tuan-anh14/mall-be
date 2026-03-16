@@ -2,10 +2,41 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@/database/prisma.service';
 import { NotificationType } from 'generated/prisma/client';
 import { QueryNotificationsDto } from './dto/query-notifications.dto';
+import { NotificationSseService } from './notification-sse.service';
 
 @Injectable()
 export class NotificationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sse: NotificationSseService,
+  ) {}
+
+  async createNotification(params: {
+    userId: string;
+    type: NotificationType;
+    title: string;
+    message: string;
+    actionPage?: string;
+    actionData?: any;
+  }) {
+    const notification = await this.prisma.notification.create({
+      data: {
+        userId: params.userId,
+        type: params.type,
+        title: params.title,
+        message: params.message,
+        actionPage: params.actionPage,
+        actionData: params.actionData,
+      },
+    });
+    // Push SSE event to the target user
+    this.sse.push({
+      userId: params.userId,
+      type: 'notification',
+      data: { notification },
+    });
+    return notification;
+  }
 
   async getNotifications(userId: string, query: QueryNotificationsDto) {
     const { page, limit, type, isRead } = query;

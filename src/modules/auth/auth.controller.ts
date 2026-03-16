@@ -89,8 +89,9 @@ export class AuthController {
   @ApiOperation({ summary: 'Get current user' })
   @ApiResponse({ status: 200, description: 'Current user info' })
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
-  me(@Req() req: Request): { user: AuthUserDto } {
-    return { user: this.authService.buildUserResponse(req.user as User) };
+  async me(@Req() req: Request): Promise<{ user: AuthUserDto }> {
+    const user = req.user as User;
+    return { user: await this.authService.buildUserResponseWithRequest(user.id) };
   }
 
   @Post('logout')

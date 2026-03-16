@@ -1,92 +1,18 @@
 import {
   IsString,
   IsNotEmpty,
-  IsEmail,
   IsOptional,
   IsEnum,
   IsNumber,
   IsBoolean,
   IsDateString,
-  MinLength,
   Min,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 
-export class CreateAdminAccountDto {
-  @ApiProperty({ example: 'John' })
-  @IsString()
-  @IsNotEmpty()
-  firstName: string;
-
-  @ApiProperty({ example: 'Doe' })
-  @IsString()
-  @IsNotEmpty()
-  lastName: string;
-
-  @ApiProperty({ example: 'john@example.com' })
-  @IsEmail()
-  email: string;
-
-  @ApiProperty({ example: 'secret123', minLength: 6 })
-  @IsString()
-  @MinLength(6)
-  password: string;
-
-  @ApiPropertyOptional({ enum: ['BUYER', 'SELLER', 'ADMIN'], default: 'BUYER' })
-  @IsEnum(['BUYER', 'SELLER', 'ADMIN'])
-  @IsOptional()
-  userType?: 'BUYER' | 'SELLER' | 'ADMIN';
-}
-
-export class CreateCategoryDto {
-  @ApiProperty({ example: 'Electronics' })
-  @IsString()
-  @IsNotEmpty()
-  name: string;
-
-  @ApiProperty({ example: 'electronics' })
-  @IsString()
-  @IsNotEmpty()
-  slug: string;
-
-  @ApiPropertyOptional({ example: 'Laptop' })
-  @IsString()
-  @IsOptional()
-  icon?: string;
-
-  @ApiPropertyOptional({ example: 0 })
-  @IsNumber()
-  @IsOptional()
-  @Type(() => Number)
-  sortOrder?: number;
-}
-
-export class UpdateCategoryDto {
-  @ApiPropertyOptional()
-  @IsString()
-  @IsOptional()
-  name?: string;
-
-  @ApiPropertyOptional()
-  @IsString()
-  @IsOptional()
-  slug?: string;
-
-  @ApiPropertyOptional()
-  @IsString()
-  @IsOptional()
-  icon?: string;
-
-  @ApiPropertyOptional()
-  @IsNumber()
-  @IsOptional()
-  @Type(() => Number)
-  sortOrder?: number;
-}
-
-export class CreateCouponDto {
-  @ApiProperty({ example: 'SUMMER20' })
+export class CreateSellerCouponDto {
+  @ApiProperty({ example: 'SHOP20' })
   @IsString()
   @IsNotEmpty()
   code: string;
@@ -134,7 +60,7 @@ export class CreateCouponDto {
   isActive?: boolean;
 }
 
-export class UpdateCouponDto {
+export class UpdateSellerCouponDto {
   @ApiPropertyOptional()
   @IsString()
   @IsOptional()
@@ -183,15 +109,4 @@ export class UpdateCouponDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
-}
-
-export class ReviewSellerRequestDto {
-  @ApiProperty({ enum: ['APPROVED', 'REJECTED'] })
-  @IsEnum(['APPROVED', 'REJECTED'])
-  status: 'APPROVED' | 'REJECTED';
-
-  @ApiPropertyOptional()
-  @IsString()
-  @IsOptional()
-  adminNote?: string;
 }

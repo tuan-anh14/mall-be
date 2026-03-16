@@ -10,11 +10,15 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Req,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { Request } from 'express';
+import { User } from 'generated/prisma/client';
 import { AdminGuard } from './admin.guard';
 import { AdminService } from './admin.service';
 import {
+  CreateAdminAccountDto,
   CreateCategoryDto,
   UpdateCategoryDto,
   CreateCouponDto,
@@ -30,17 +34,28 @@ export class AdminController {
 
   // ─── ACCOUNTS ──────────────────────────────────────────────────────────────
 
+  @Post('accounts')
+  @ApiOperation({ summary: 'Create a new user account' })
+  async createAccount(@Req() req: Request, @Body() dto: CreateAdminAccountDto) {
+    const admin = req.user as User;
+    const result = await this.adminService.createAccount(dto);
+    await this.adminService.logAction(admin.id, 'CREATE', 'account', result.id, { email: dto.email, userType: dto.userType });
+    return result;
+  }
+
   @Get('accounts')
   @ApiOperation({ summary: 'List all user accounts' })
   getAccounts(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('search') search?: string,
+    @Query('userType') userType?: string,
   ) {
     return this.adminService.getAccounts(
       page ? parseInt(page) : 1,
       limit ? parseInt(limit) : 20,
       search,
+      userType,
     );
   }
 
@@ -53,14 +68,20 @@ export class AdminController {
   @Put('accounts/:id/ban')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Ban/force-logout a user account' })
-  banAccount(@Param('id') id: string) {
-    return this.adminService.banAccount(id);
+  async banAccount(@Req() req: Request, @Param('id') id: string) {
+    const admin = req.user as User;
+    const result = await this.adminService.banAccount(id);
+    await this.adminService.logAction(admin.id, 'BAN', 'account', id);
+    return result;
   }
 
   @Delete('accounts/:id')
   @ApiOperation({ summary: 'Delete a user account' })
-  deleteAccount(@Param('id') id: string) {
-    return this.adminService.deleteAccount(id);
+  async deleteAccount(@Req() req: Request, @Param('id') id: string) {
+    const admin = req.user as User;
+    const result = await this.adminService.deleteAccount(id);
+    await this.adminService.logAction(admin.id, 'DELETE', 'account', id);
+    return result;
   }
 
   // ─── CATEGORIES ────────────────────────────────────────────────────────────
@@ -73,20 +94,29 @@ export class AdminController {
 
   @Post('categories')
   @ApiOperation({ summary: 'Create category' })
-  createCategory(@Body() dto: CreateCategoryDto) {
-    return this.adminService.createCategory(dto);
+  async createCategory(@Req() req: Request, @Body() dto: CreateCategoryDto) {
+    const admin = req.user as User;
+    const result = await this.adminService.createCategory(dto);
+    await this.adminService.logAction(admin.id, 'CREATE', 'category', result.id, { name: dto.name });
+    return result;
   }
 
   @Put('categories/:id')
   @ApiOperation({ summary: 'Update category' })
-  updateCategory(@Param('id') id: string, @Body() dto: UpdateCategoryDto) {
-    return this.adminService.updateCategory(id, dto);
+  async updateCategory(@Req() req: Request, @Param('id') id: string, @Body() dto: UpdateCategoryDto) {
+    const admin = req.user as User;
+    const result = await this.adminService.updateCategory(id, dto);
+    await this.adminService.logAction(admin.id, 'UPDATE', 'category', id, dto);
+    return result;
   }
 
   @Delete('categories/:id')
   @ApiOperation({ summary: 'Delete category' })
-  deleteCategory(@Param('id') id: string) {
-    return this.adminService.deleteCategory(id);
+  async deleteCategory(@Req() req: Request, @Param('id') id: string) {
+    const admin = req.user as User;
+    const result = await this.adminService.deleteCategory(id);
+    await this.adminService.logAction(admin.id, 'DELETE', 'category', id);
+    return result;
   }
 
   // ─── COUPONS ───────────────────────────────────────────────────────────────
@@ -105,20 +135,29 @@ export class AdminController {
 
   @Post('coupons')
   @ApiOperation({ summary: 'Create coupon' })
-  createCoupon(@Body() dto: CreateCouponDto) {
-    return this.adminService.createCoupon(dto);
+  async createCoupon(@Req() req: Request, @Body() dto: CreateCouponDto) {
+    const admin = req.user as User;
+    const result = await this.adminService.createCoupon(dto);
+    await this.adminService.logAction(admin.id, 'CREATE', 'coupon', result.id, { code: dto.code });
+    return result;
   }
 
   @Put('coupons/:id')
   @ApiOperation({ summary: 'Update coupon' })
-  updateCoupon(@Param('id') id: string, @Body() dto: UpdateCouponDto) {
-    return this.adminService.updateCoupon(id, dto);
+  async updateCoupon(@Req() req: Request, @Param('id') id: string, @Body() dto: UpdateCouponDto) {
+    const admin = req.user as User;
+    const result = await this.adminService.updateCoupon(id, dto);
+    await this.adminService.logAction(admin.id, 'UPDATE', 'coupon', id, dto);
+    return result;
   }
 
   @Delete('coupons/:id')
   @ApiOperation({ summary: 'Delete coupon' })
-  deleteCoupon(@Param('id') id: string) {
-    return this.adminService.deleteCoupon(id);
+  async deleteCoupon(@Req() req: Request, @Param('id') id: string) {
+    const admin = req.user as User;
+    const result = await this.adminService.deleteCoupon(id);
+    await this.adminService.logAction(admin.id, 'DELETE', 'coupon', id);
+    return result;
   }
 
   // ─── REVIEWS ───────────────────────────────────────────────────────────────
@@ -139,8 +178,11 @@ export class AdminController {
 
   @Delete('reviews/:id')
   @ApiOperation({ summary: 'Delete a review' })
-  deleteReview(@Param('id') id: string) {
-    return this.adminService.deleteReview(id);
+  async deleteReview(@Req() req: Request, @Param('id') id: string) {
+    const admin = req.user as User;
+    const result = await this.adminService.deleteReview(id);
+    await this.adminService.logAction(admin.id, 'DELETE', 'review', id);
+    return result;
   }
 
   // ─── SELLER REQUESTS ───────────────────────────────────────────────────────
@@ -155,10 +197,32 @@ export class AdminController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Approve or reject a seller request' })
   reviewSellerRequest(
+    @Req() req: Request,
     @Param('id') id: string,
     @Body() dto: ReviewSellerRequestDto,
   ) {
-    return this.adminService.reviewSellerRequest(id, dto);
+    const admin = req.user as User;
+    return this.adminService.reviewSellerRequest(id, dto, admin.id);
+  }
+
+  // ─── AUDIT LOGS ────────────────────────────────────────────────────────────
+
+  @Get('audit-logs')
+  @ApiOperation({ summary: 'Get admin audit logs' })
+  getAuditLogs(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('adminId') adminId?: string,
+    @Query('action') action?: string,
+    @Query('resource') resource?: string,
+  ) {
+    return this.adminService.getAuditLogs(
+      page ? parseInt(page) : 1,
+      limit ? parseInt(limit) : 50,
+      adminId,
+      action,
+      resource,
+    );
   }
 
   // ─── STATISTICS ────────────────────────────────────────────────────────────
