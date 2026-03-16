@@ -6,11 +6,13 @@ import {
 import { PrismaService } from '@/database/prisma.service';
 import {
   CouponType,
+  NotificationType,
   OrderStatus,
   TrackingStatus,
 } from 'generated/prisma/client';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { QueryOrdersDto } from './dto/query-orders.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 
 const ORDER_INCLUDE = {
   items: {
@@ -35,7 +37,10 @@ const TRACKING_STEPS = [
 
 @Injectable()
 export class OrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   private generateOrderId(): string {
     const year = new Date().getFullYear();
@@ -397,6 +402,35 @@ export class OrdersService {
       include: ORDER_INCLUDE,
     });
 
+    // Notify buyer that order was placed
+    this.notifications.createNotification({
+      userId,
+      type: NotificationType.ORDER,
+      title: 'Đặt hàng thành công',
+      message: `Đơn hàng ${orderId} của bạn đã được đặt thành công. Tổng cộng: $${total.toFixed(2)}.`,
+      actionPage: 'orders',
+    }).catch(() => {});
+
+    // Notify sellers for their products in the order
+    const sellerProductIds = rawItems.map((i) => i.productId);
+    const sellerProducts = await this.prisma.product.findMany({
+      where: { id: { in: sellerProductIds } },
+      select: { id: true, name: true, seller: { select: { userId: true } } },
+    });
+    const sellerUserIds = new Set<string>();
+    for (const p of sellerProducts) {
+      if (p.seller?.userId) sellerUserIds.add(p.seller.userId);
+    }
+    for (const sellerUserId of sellerUserIds) {
+      this.notifications.createNotification({
+        userId: sellerUserId,
+        type: NotificationType.ORDER,
+        title: 'Bạn có đơn hàng mới',
+        message: `Đơn hàng mới ${orderId} vừa được đặt. Hãy kiểm tra và xác nhận đơn hàng.`,
+        actionPage: 'dashboard',
+      }).catch(() => {});
+    }
+
     return { order: this.formatOrder(createdOrder) };
   }
 
@@ -437,6 +471,15 @@ export class OrdersService {
       where: { id: orderId },
       include: ORDER_INCLUDE,
     });
+
+    // Notify buyer about cancellation
+    this.notifications.createNotification({
+      userId,
+      type: NotificationType.ORDER,
+      title: 'Đơn hàng đã bị hủy',
+      message: `Đơn hàng ${orderId} của bạn đã được hủy thành công.`,
+      actionPage: 'orders',
+    }).catch(() => {});
 
     return { order: this.formatOrder(updated) };
   }
