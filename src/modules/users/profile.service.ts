@@ -233,4 +233,32 @@ export class ProfileService {
 
     return { settings };
   }
+
+  async getBuyerPublicProfile(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        createdAt: true,
+        _count: {
+          select: {
+            orders: true,
+            reviews: true,
+          },
+        },
+      },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    return {
+      profile: {
+        id: user.id,
+        name: `${user.firstName} ${user.lastName}`.trim(),
+        memberSince: user.createdAt,
+        orderCount: user._count.orders,
+        reviewCount: user._count.reviews,
+      },
+    };
+  }
 }

@@ -131,6 +131,14 @@ export class ProfileController {
 
   // ─── Settings ────────────────────────────────────────────────────────────────
 
+  @Get(':userId/buyer-profile')
+  @ApiOperation({ summary: 'Get buyer public profile (for sellers)' })
+  @ApiParam({ name: 'userId', type: String })
+  @ApiResponse({ status: 200, description: 'Buyer public profile' })
+  getBuyerPublicProfile(@Param('userId') userId: string) {
+    return this.profileService.getBuyerPublicProfile(userId);
+  }
+
   @Get('me/settings')
   @ApiOperation({ summary: 'Get user settings' })
   @ApiResponse({ status: 200, description: 'User settings' })
