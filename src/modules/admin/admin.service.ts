@@ -255,6 +255,8 @@ export class AdminService {
       return await this.prisma.coupon.create({
         data: {
           code: dto.code.toUpperCase(),
+          name: dto.name,
+          description: dto.description,
           type: dto.type,
           value: dto.value,
           minOrderAmount: dto.minOrderAmount,

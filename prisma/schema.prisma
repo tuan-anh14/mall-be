@@ -401,6 +401,8 @@ model WishlistItem {
 model Coupon {
   id             String     @id @default(cuid())
   code           String     @unique            // "SUMMER20", "BLACKFRIDAY50"
+  name           String?                       // Tên hiển thị: "Black Friday 2024"
+  description    String?                       // Mô tả ngắn hiển thị trên banner
   type           CouponType
   value          Decimal    @db.Decimal(10, 2) // 20 (= 20%) hoặc 50 (= $50)
   minOrderAmount Decimal?   @db.Decimal(10, 2) // Đơn hàng tối thiểu để áp dụng

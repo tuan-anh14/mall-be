@@ -91,6 +91,16 @@ export class CreateCouponDto {
   @IsNotEmpty()
   code: string;
 
+  @ApiPropertyOptional({ example: 'Black Friday 2024' })
+  @IsString()
+  @IsOptional()
+  name?: string;
+
+  @ApiPropertyOptional({ example: 'Giảm đến 50% cho tất cả sản phẩm' })
+  @IsString()
+  @IsOptional()
+  description?: string;
+
   @ApiProperty({ enum: ['PERCENTAGE', 'FIXED_AMOUNT'] })
   @IsEnum(['PERCENTAGE', 'FIXED_AMOUNT'])
   type: 'PERCENTAGE' | 'FIXED_AMOUNT';
@@ -139,6 +149,16 @@ export class UpdateCouponDto {
   @IsString()
   @IsOptional()
   code?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  name?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  description?: string;
 
   @ApiPropertyOptional({ enum: ['PERCENTAGE', 'FIXED_AMOUNT'] })
   @IsEnum(['PERCENTAGE', 'FIXED_AMOUNT'])

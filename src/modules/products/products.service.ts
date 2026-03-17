@@ -242,4 +242,29 @@ export class ProductsService {
       products: products.map((p) => this.formatProduct(p)),
     };
   }
+
+  async getActivePromotions() {
+    const now = new Date();
+    const coupons = await this.prisma.coupon.findMany({
+      where: {
+        sellerId: null,
+        isActive: true,
+        validFrom: { lte: now },
+        OR: [{ validUntil: null }, { validUntil: { gte: now } }],
+      },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        description: true,
+        type: true,
+        value: true,
+        minOrderAmount: true,
+        maxDiscount: true,
+        validUntil: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return { promotions: coupons };
+  }
 }

@@ -23,6 +23,13 @@ export class ProductsController {
   }
 
   // Must be before /:id to avoid being matched as product ID
+  @Get('promotions')
+  @ApiOperation({ summary: 'Get active platform-wide promotions' })
+  @ApiResponse({ status: 200, description: 'Active promotions list' })
+  getActivePromotions() {
+    return this.productsService.getActivePromotions();
+  }
+
   @Get('sellers/:userId')
   @ApiOperation({ summary: 'Get seller profile and their products' })
   @ApiParam({ name: 'userId', type: String })
