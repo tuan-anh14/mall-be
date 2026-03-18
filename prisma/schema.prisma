@@ -45,6 +45,25 @@ enum PaymentMethodType {
   DEBIT_CARD
   PAYPAL
   CRYPTO
+  WALLET
+  VNPAY
+  MOMO
+  BANK_TRANSFER
+  COD
+}
+
+enum WalletTransactionType {
+  DEPOSIT     // Nạp tiền vào ví
+  PAYMENT     // Thanh toán đơn hàng
+  REFUND      // Hoàn tiền về ví
+  ADJUSTMENT  // Admin điều chỉnh thủ công
+}
+
+enum WalletTransactionStatus {
+  PENDING    // Đang chờ gateway callback
+  COMPLETED  // Hoàn thành
+  FAILED     // Thất bại
+  CANCELLED  // Đã hủy
 }
 
 enum NotificationType {
@@ -125,6 +144,8 @@ model User {
 
   sellerRequest SellerRequest?
   auditLogs     AuditLog[]
+
+  wallet        Wallet?
 
   @@map("users")
 }
@@ -736,4 +757,49 @@ model Message {
 
   @@index([conversationId, createdAt(sort: Desc)])
   @@map("messages")
+}
+
+// ============================================================
+// WALLET MODELS
+// ============================================================
+
+model Wallet {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  balance   Decimal  @default(0) @db.Decimal(12, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions WalletTransaction[]
+
+  @@map("wallets")
+}
+
+model WalletTransaction {
+  id            String                  @id @default(cuid())
+  walletId      String
+  type          WalletTransactionType
+  status        WalletTransactionStatus @default(PENDING)
+  amount        Decimal                 @db.Decimal(12, 2)
+  balanceBefore Decimal                 @db.Decimal(12, 2)
+  balanceAfter  Decimal                 @db.Decimal(12, 2)
+
+  orderId      String?  // Liên kết đơn hàng (PAYMENT / REFUND)
+  adminId      String?  // Admin thực hiện ADJUSTMENT
+  description  String?
+
+  // Gateway info (VNPAY / MoMo)
+  gatewayTxnId String?
+  gatewayData  Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
+  @@map("wallet_transactions")
 }

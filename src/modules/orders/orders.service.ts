@@ -13,6 +13,7 @@ import {
 import { CreateOrderDto } from './dto/create-order.dto';
 import { QueryOrdersDto } from './dto/query-orders.dto';
 import { NotificationsService } from '../notifications/notifications.service';
+import { WalletService } from '../wallet/wallet.service';
 
 const ORDER_INCLUDE = {
   items: {
@@ -35,11 +36,14 @@ const TRACKING_STEPS = [
   { status: TrackingStatus.DELIVERED, label: 'Delivered', sortOrder: 4 },
 ];
 
+const PAID_METHODS = ['wallet', 'vnpay', 'momo'];
+
 @Injectable()
 export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    private readonly walletService: WalletService,
   ) {}
 
   private generateOrderId(): string {
@@ -313,12 +317,26 @@ export class OrdersService {
       orderId = this.generateOrderId();
     }
 
+    const isPaidOnline = PAID_METHODS.includes(dto.paymentMethod);
+    const initialStatus = isPaidOnline ? OrderStatus.CONFIRMED : OrderStatus.PENDING;
+
+    // For wallet payment, pre-check balance before entering transaction
+    if (dto.paymentMethod === 'wallet') {
+      const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
+      const balance = wallet ? Number(wallet.balance) : 0;
+      if (balance < total) {
+        throw new BadRequestException(
+          `Số dư ví không đủ. Hiện có: $${balance.toFixed(2)}, cần: $${total.toFixed(2)}`,
+        );
+      }
+    }
+
     const order = await this.prisma.$transaction(async (tx) => {
       const created = await tx.order.create({
         data: {
           id: orderId,
           userId,
-          status: OrderStatus.PENDING,
+          status: initialStatus,
           subtotal,
           shippingCost,
           tax,
@@ -360,15 +378,18 @@ export class OrdersService {
       });
 
       // Create tracking steps
+      const now = new Date();
       await tx.orderTracking.createMany({
         data: TRACKING_STEPS.map((step) => ({
           orderId: created.id,
           status: step.status,
           label: step.label,
           sortOrder: step.sortOrder,
-          isCompleted: step.sortOrder === 0,
-          isCurrent: step.sortOrder === 0,
-          completedAt: step.sortOrder === 0 ? new Date() : null,
+          isCompleted: isPaidOnline ? step.sortOrder <= 1 : step.sortOrder === 0,
+          isCurrent: isPaidOnline ? step.sortOrder === 1 : step.sortOrder === 0,
+          completedAt: isPaidOnline
+            ? step.sortOrder <= 1 ? now : null
+            : step.sortOrder === 0 ? now : null,
         })),
       });
 
@@ -389,6 +410,11 @@ export class OrdersService {
         await tx.couponUsage.create({
           data: { couponId: coupon.id, userId, orderId: created.id },
         });
+      }
+
+      // Wallet payment: debit balance inside same transaction
+      if (dto.paymentMethod === 'wallet') {
+        await this.walletService.payWithWalletInTx(tx, userId, created.id, total);
       }
 
       // Always clear the user's cart after placing an order
@@ -452,10 +478,12 @@ export class OrdersService {
       );
     }
 
+    const wasWalletPaid = order.paymentMethod === 'wallet';
+
     await this.prisma.$transaction(async (tx) => {
       await tx.order.update({
         where: { id: orderId },
-        data: { status: OrderStatus.CANCELLED },
+        data: { status: wasWalletPaid ? OrderStatus.REFUNDED : OrderStatus.CANCELLED },
       });
 
       // Restore product stock
@@ -467,17 +495,25 @@ export class OrdersService {
       }
     });
 
+    // Refund to wallet if paid via wallet
+    if (wasWalletPaid) {
+      await this.walletService.refundToWallet(userId, orderId, Number(order.total));
+    }
+
     const updated = await this.prisma.order.findUniqueOrThrow({
       where: { id: orderId },
       include: ORDER_INCLUDE,
     });
 
-    // Notify buyer about cancellation
+    const notifMessage = wasWalletPaid
+      ? `Đơn hàng ${orderId} đã bị hủy. $${Number(order.total).toFixed(2)} đã được hoàn về ví của bạn.`
+      : `Đơn hàng ${orderId} của bạn đã được hủy thành công.`;
+
     this.notifications.createNotification({
       userId,
       type: NotificationType.ORDER,
-      title: 'Đơn hàng đã bị hủy',
-      message: `Đơn hàng ${orderId} của bạn đã được hủy thành công.`,
+      title: wasWalletPaid ? 'Đơn hàng đã hủy - Đã hoàn tiền' : 'Đơn hàng đã bị hủy',
+      message: notifMessage,
       actionPage: 'orders',
     }).catch(() => {});
 

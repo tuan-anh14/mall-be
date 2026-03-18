@@ -17,6 +17,8 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { ConversationsModule } from './modules/conversations/conversations.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { WalletModule } from './modules/wallet/wallet.module';
+import { PaymentModule } from './modules/payment/payment.module';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { SessionAuthGuard } from './common/guards/session-auth.guard';
@@ -52,6 +54,8 @@ import { AppService } from './app.service';
     NotificationsModule,
     ConversationsModule,
     AdminModule,
+    WalletModule,
+    PaymentModule,
   ],
   controllers: [AppController],
   providers: [
