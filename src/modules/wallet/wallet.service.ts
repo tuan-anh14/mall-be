@@ -203,7 +203,7 @@ export class WalletService {
     const balance = Number(wallet.balance);
     if (balance < amount) {
       throw new BadRequestException(
-        `Số dư ví không đủ. Hiện có: $${balance.toFixed(2)}, cần: $${amount.toFixed(2)}`,
+        `Số dư ví không đủ. Hiện có: ${balance.toFixed(0)} ₫, cần: ${amount.toFixed(0)} ₫`,
       );
     }
 
@@ -357,7 +357,7 @@ export class WalletService {
 
     if (newBalance < 0) {
       throw new BadRequestException(
-        `Không thể trừ quá số dư hiện có ($${balance.toFixed(2)})`,
+        `Không thể trừ quá số dư hiện có (${balance.toFixed(0)} ₫)`,
       );
     }
 

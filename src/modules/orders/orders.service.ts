@@ -292,7 +292,7 @@ export class OrdersService {
 
       if (coupon.minOrderAmount && subtotal < Number(coupon.minOrderAmount)) {
         throw new BadRequestException(
-          `Minimum order amount is $${Number(coupon.minOrderAmount).toFixed(2)}`,
+          `Giá trị đơn hàng tối thiểu là ${Number(coupon.minOrderAmount).toFixed(0)} ₫`,
         );
       }
 
@@ -326,7 +326,7 @@ export class OrdersService {
       const balance = wallet ? Number(wallet.balance) : 0;
       if (balance < total) {
         throw new BadRequestException(
-          `Số dư ví không đủ. Hiện có: $${balance.toFixed(2)}, cần: $${total.toFixed(2)}`,
+          `Số dư ví không đủ. Hiện có: ${balance.toFixed(0)} ₫, cần: ${total.toFixed(0)} ₫`,
         );
       }
     }
@@ -433,7 +433,7 @@ export class OrdersService {
       userId,
       type: NotificationType.ORDER,
       title: 'Đặt hàng thành công',
-      message: `Đơn hàng ${orderId} của bạn đã được đặt thành công. Tổng cộng: $${total.toFixed(2)}.`,
+      message: `Đơn hàng ${orderId} của bạn đã được đặt thành công. Tổng cộng: ${total.toFixed(0)} ₫.`,
       actionPage: 'orders',
     }).catch(() => {});
 
@@ -506,7 +506,7 @@ export class OrdersService {
     });
 
     const notifMessage = wasWalletPaid
-      ? `Đơn hàng ${orderId} đã bị hủy. $${Number(order.total).toFixed(2)} đã được hoàn về ví của bạn.`
+      ? `Đơn hàng ${orderId} đã bị hủy. ${Number(order.total).toFixed(0)} ₫ đã được hoàn về ví của bạn.`
       : `Đơn hàng ${orderId} của bạn đã được hủy thành công.`;
 
     this.notifications.createNotification({
