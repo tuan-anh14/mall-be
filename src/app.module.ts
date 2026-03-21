@@ -19,6 +19,8 @@ import { ConversationsModule } from './modules/conversations/conversations.modul
 import { AdminModule } from './modules/admin/admin.module';
 import { WalletModule } from './modules/wallet/wallet.module';
 import { PaymentModule } from './modules/payment/payment.module';
+import { ViewHistoryModule } from './modules/view-history/view-history.module';
+import { RecommendationsModule } from './modules/recommendations/recommendations.module';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { SessionAuthGuard } from './common/guards/session-auth.guard';
@@ -56,6 +58,8 @@ import { AppService } from './app.service';
     AdminModule,
     WalletModule,
     PaymentModule,
+    ViewHistoryModule,
+    RecommendationsModule,
   ],
   controllers: [AppController],
   providers: [

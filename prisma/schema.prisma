@@ -146,6 +146,7 @@ model User {
   auditLogs     AuditLog[]
 
   wallet        Wallet?
+  viewHistories ProductViewHistory[]
 
   @@map("users")
 }
@@ -284,6 +285,7 @@ model Product {
   reviews        Review[]
   orderItems     OrderItem[]
   conversations  Conversation[]
+  viewHistories  ProductViewHistory[]
 
   @@index([categoryId])
   @@index([sellerId])
@@ -774,6 +776,26 @@ model Wallet {
   transactions WalletTransaction[]
 
   @@map("wallets")
+}
+
+// ============================================================
+// PRODUCT VIEW HISTORY
+// ============================================================
+
+model ProductViewHistory {
+  id           String   @id @default(cuid())
+  userId       String
+  productId    String
+  viewCount    Int      @default(1)
+  lastViewedAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([userId, lastViewedAt(sort: Desc)])
+  @@map("product_view_histories")
 }
 
 model WalletTransaction {
