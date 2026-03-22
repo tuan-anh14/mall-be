@@ -1,5 +1,7 @@
 import {
   BadRequestException,
+  forwardRef,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -15,10 +17,15 @@ import {
   QueryAdminWalletsDto,
   QueryWalletTransactionsDto,
 } from './dto/wallet.dto';
+import { PaymentService } from '../payment/payment.service';
 
 @Injectable()
 export class WalletService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => PaymentService))
+    private readonly paymentService: PaymentService,
+  ) {}
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -103,17 +110,28 @@ export class WalletService {
       },
     });
 
-    // Mock gateway URL — in production, sign and redirect to real gateway
-    const mockPaymentUrl = this.buildMockGatewayUrl(
-      dto.gateway,
-      txn.id,
-      dto.amount,
-      dto.returnUrl,
-    );
+    // Real gateway URL
+    let paymentUrl = '';
+    if (dto.gateway === DepositGateway.VNPAY) {
+      paymentUrl = await this.paymentService.createVnpayUrl(
+        txn.id,
+        dto.amount,
+        '127.0.0.1', // Default IP, in production extract from request
+        dto.returnUrl,
+      );
+    } else {
+      // Keep mock for MoMo for now or implement similar logic
+      paymentUrl = this.buildMockGatewayUrl(
+        dto.gateway,
+        txn.id,
+        dto.amount,
+        dto.returnUrl,
+      );
+    }
 
     return {
       transactionId: txn.id,
-      paymentUrl: mockPaymentUrl,
+      paymentUrl,
       amount: dto.amount,
       gateway: dto.gateway,
     };
@@ -125,10 +143,7 @@ export class WalletService {
     amount: number,
     returnUrl?: string,
   ): string {
-    const base =
-      gateway === DepositGateway.VNPAY
-        ? 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html'
-        : 'https://test-payment.momo.vn/v2/gateway/pay';
+    const base = 'https://test-payment.momo.vn/v2/gateway/pay';
 
     const params = new URLSearchParams({
       vnp_TxnRef: txnId,

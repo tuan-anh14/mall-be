@@ -113,4 +113,9 @@ export class CreateOrderDto {
   @ValidateNested({ each: true })
   @Type(() => OrderItemInputDto)
   items?: OrderItemInputDto[];
+
+  @ApiPropertyOptional({ description: 'URL to redirect after payment' })
+  @IsOptional()
+  @IsString()
+  returnUrl?: string;
 }

@@ -1,5 +1,7 @@
 import {
   BadRequestException,
+  forwardRef,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -9,11 +11,13 @@ import {
   NotificationType,
   OrderStatus,
   TrackingStatus,
+  NotificationType as PrismaNotificationType, // Just in case of conflicts
 } from 'generated/prisma/client';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { QueryOrdersDto } from './dto/query-orders.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { WalletService } from '../wallet/wallet.service';
+import { PaymentService } from '../payment/payment.service';
 
 const ORDER_INCLUDE = {
   items: {
@@ -44,6 +48,8 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
     private readonly walletService: WalletService,
+    @Inject(forwardRef(() => PaymentService))
+    private readonly paymentService: PaymentService,
   ) {}
 
   private generateOrderId(): string {
@@ -318,7 +324,10 @@ export class OrdersService {
     }
 
     const isPaidOnline = PAID_METHODS.includes(dto.paymentMethod);
-    const initialStatus = isPaidOnline ? OrderStatus.CONFIRMED : OrderStatus.PENDING;
+    const initialStatus =
+      dto.paymentMethod === 'wallet'
+        ? OrderStatus.CONFIRMED
+        : OrderStatus.PENDING;
 
     // For wallet payment, pre-check balance before entering transaction
     if (dto.paymentMethod === 'wallet') {
@@ -428,6 +437,17 @@ export class OrdersService {
       include: ORDER_INCLUDE,
     });
 
+    let paymentUrl: string | undefined;
+    if (dto.paymentMethod === 'vnpay') {
+      const vnpayResult = await this.paymentService.createVnpayUrl(
+        createdOrder.id,
+        Number(createdOrder.total),
+        '127.0.0.1', // Should ideally be from request, but keeping same as wallet logic
+        dto.returnUrl,
+      );
+      paymentUrl = vnpayResult; // It returns a string now
+    }
+
     // Notify buyer that order was placed
     this.notifications.createNotification({
       userId,
@@ -457,7 +477,10 @@ export class OrdersService {
       }).catch(() => {});
     }
 
-    return { order: this.formatOrder(createdOrder) };
+    return {
+      order: this.formatOrder(createdOrder),
+      paymentUrl,
+    };
   }
 
   async cancelOrder(userId: string, orderId: string) {
