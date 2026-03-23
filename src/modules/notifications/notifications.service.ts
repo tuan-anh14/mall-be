@@ -102,4 +102,31 @@ export class NotificationsService {
 
     return {};
   }
+
+  async broadcastPromotion(params: {
+    title: string;
+    message: string;
+    actionPage?: string;
+  }) {
+    const users = await this.prisma.user.findMany({
+      select: { id: true },
+    });
+
+    for (const user of users) {
+      const notification = await this.prisma.notification.create({
+        data: {
+          userId: user.id,
+          type: NotificationType.PROMOTION,
+          title: params.title,
+          message: params.message,
+          actionPage: params.actionPage ?? 'shop',
+        },
+      });
+      this.sse.push({
+        userId: user.id,
+        type: 'notification',
+        data: { notification },
+      });
+    }
+  }
 }

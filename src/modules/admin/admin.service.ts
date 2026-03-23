@@ -251,8 +251,9 @@ export class AdminService {
   }
 
   async createCoupon(dto: CreateCouponDto) {
+    let coupon: any;
     try {
-      return await this.prisma.coupon.create({
+      coupon = await this.prisma.coupon.create({
         data: {
           code: dto.code.toUpperCase(),
           name: dto.name,
@@ -271,6 +272,21 @@ export class AdminService {
       if (e?.code === 'P2002') throw new ConflictException('Mã giảm giá đã tồn tại');
       throw e;
     }
+
+    // Broadcast promotion notification to all users
+    if (coupon.isActive) {
+      const discountLabel =
+        coupon.type === 'PERCENTAGE'
+          ? `${coupon.value}%`
+          : `${Number(coupon.value).toLocaleString('vi-VN')} ₫`;
+      const title = coupon.name ?? `Khuyến mãi mới: Giảm ${discountLabel}`;
+      const message =
+        coupon.description ??
+        `Dùng mã ${coupon.code} để được giảm ${discountLabel} cho đơn hàng của bạn!`;
+      this.notificationsService.broadcastPromotion({ title, message, actionPage: 'shop' }).catch(() => {});
+    }
+
+    return coupon;
   }
 
   async updateCoupon(id: string, dto: UpdateCouponDto) {

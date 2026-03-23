@@ -111,17 +111,46 @@ export class ProductsService {
     const where: any = { status: ProductStatus.ACTIVE };
 
     if (category) {
-      where.category = {
-        OR: [
-          { slug: category },
-          { id: category },
-          { name: { equals: category, mode: 'insensitive' } },
-        ],
-      };
+      const cats = category
+        .split(',')
+        .map((c) => c.trim())
+        .filter(Boolean);
+      if (cats.length === 1) {
+        where.category = {
+          OR: [
+            { slug: cats[0] },
+            { id: cats[0] },
+            { name: { equals: cats[0], mode: 'insensitive' } },
+          ],
+        };
+      } else {
+        where.category = {
+          OR: cats.flatMap((c) => [
+            { slug: c },
+            { id: c },
+            { name: { equals: c, mode: 'insensitive' as const } },
+          ]),
+        };
+      }
     }
 
     if (brand) {
-      where.brand = { contains: brand, mode: 'insensitive' };
+      const brandList = brand
+        .split(',')
+        .map((b) => b.trim())
+        .filter(Boolean);
+      if (brandList.length === 1) {
+        where.brand = { contains: brandList[0], mode: 'insensitive' };
+      } else {
+        where.AND = [
+          ...(where.AND ?? []),
+          {
+            OR: brandList.map((b) => ({
+              brand: { contains: b, mode: 'insensitive' as const },
+            })),
+          },
+        ];
+      }
     }
 
     if (minPrice !== undefined || maxPrice !== undefined) {

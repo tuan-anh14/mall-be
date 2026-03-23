@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '@/database/prisma.service';
-import { OrderStatus } from 'generated/prisma/client';
+import { OrderStatus, TrackingStatus } from 'generated/prisma/client';
 
 const STATUS_FILTER_MAP: Record<string, OrderStatus[]> = {
   Processing: [
@@ -129,6 +129,21 @@ export class OrdersService {
     };
   }
 
+  // Map OrderStatus to the corresponding TrackingStatus sort order threshold
+  private readonly TRACKING_SORT_ORDER: Record<string, number> = {
+    [OrderStatus.PROCESSING]: 1,
+    [OrderStatus.SHIPPED]: 2,
+    [OrderStatus.OUT_FOR_DELIVERY]: 3,
+    [OrderStatus.DELIVERED]: 4,
+  };
+
+  private readonly ORDER_STATUS_TO_TRACKING: Record<string, TrackingStatus> = {
+    [OrderStatus.PROCESSING]: TrackingStatus.CONFIRMED,
+    [OrderStatus.SHIPPED]: TrackingStatus.SHIPPED,
+    [OrderStatus.OUT_FOR_DELIVERY]: TrackingStatus.OUT_FOR_DELIVERY,
+    [OrderStatus.DELIVERED]: TrackingStatus.DELIVERED,
+  };
+
   async updateStatus(userId: string, orderId: string, status: string) {
     const profile = await this.getSellerProfile(userId);
     const sellerId = profile.id;
@@ -142,9 +157,37 @@ export class OrdersService {
     if (!order) throw new NotFoundException('Order not found');
 
     const dbStatus = STATUS_UPDATE_MAP[status];
-    const updated = await this.prisma.order.update({
+    const currentSortOrder = this.TRACKING_SORT_ORDER[dbStatus] ?? 0;
+    const currentTrackingStatus = this.ORDER_STATUS_TO_TRACKING[dbStatus];
+    const now = new Date();
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.order.update({
+        where: { id: orderId },
+        data: { status: dbStatus },
+      });
+
+      if (currentTrackingStatus) {
+        // Mark all steps up to and including current as completed
+        await tx.orderTracking.updateMany({
+          where: { orderId, sortOrder: { lte: currentSortOrder } },
+          data: { isCompleted: true, isCurrent: false, completedAt: now },
+        });
+        // Mark steps after current as not completed
+        await tx.orderTracking.updateMany({
+          where: { orderId, sortOrder: { gt: currentSortOrder } },
+          data: { isCompleted: false, isCurrent: false, completedAt: null },
+        });
+        // Set the current step
+        await tx.orderTracking.updateMany({
+          where: { orderId, status: currentTrackingStatus },
+          data: { isCurrent: true },
+        });
+      }
+    });
+
+    const updated = await this.prisma.order.findUniqueOrThrow({
       where: { id: orderId },
-      data: { status: dbStatus },
       select: { id: true, status: true, updatedAt: true },
     });
 
