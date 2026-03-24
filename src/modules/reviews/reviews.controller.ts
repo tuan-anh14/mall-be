@@ -20,6 +20,7 @@ import {
 import { ReviewsService } from './reviews.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
+import { CreateReplyDto } from './dto/create-reply.dto';
 import { CurrentUser } from '@/common/decorators/current-user.decorator';
 import { Public } from '@/common/decorators/public.decorator';
 import { PaginationDto } from '@/common/dto/pagination.dto';
@@ -86,5 +87,18 @@ export class ReviewsController {
     @Param('id') reviewId: string,
   ) {
     return this.reviewsService.deleteReview(userId, reviewId);
+  }
+
+  @Post(':id/replies')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Reply to a review' })
+  @ApiParam({ name: 'id', type: String })
+  @ApiResponse({ status: 201, description: 'Reply created' })
+  createReply(
+    @CurrentUser('id') userId: string,
+    @Param('id') reviewId: string,
+    @Body() dto: CreateReplyDto,
+  ) {
+    return this.reviewsService.createReply(userId, reviewId, dto);
   }
 }

@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '@/database/prisma.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
+import { CreateReplyDto } from './dto/create-reply.dto';
 import { PaginationDto } from '@/common/dto/pagination.dto';
 
 @Injectable()
@@ -31,6 +32,19 @@ export class ReviewsService {
         : null,
       createdAt: review.createdAt,
       updatedAt: review.updatedAt,
+      replies: (review.replies ?? []).map((reply: any) => ({
+        id: reply.id,
+        comment: reply.comment,
+        images: reply.images ?? [],
+        createdAt: reply.createdAt,
+        user: reply.user
+          ? {
+              id: reply.user.id,
+              name: `${reply.user.firstName} ${reply.user.lastName}`,
+              avatar: reply.user.avatar,
+            }
+          : null,
+      })),
     };
   }
 
@@ -49,6 +63,14 @@ export class ReviewsService {
         where: { productId },
         include: {
           user: { select: { id: true, firstName: true, lastName: true, avatar: true } },
+          replies: {
+            include: {
+              user: {
+                select: { id: true, firstName: true, lastName: true, avatar: true },
+              },
+            },
+            orderBy: { createdAt: 'asc' },
+          },
         },
         orderBy: { createdAt: 'desc' },
         skip,
@@ -196,5 +218,44 @@ export class ReviewsService {
         reviewCount: result._count.rating,
       },
     });
+  }
+
+  async createReply(userId: string, reviewId: string, dto: CreateReplyDto) {
+    const review = await this.prisma.review.findUnique({
+      where: { id: reviewId },
+      include: { product: true },
+    });
+    if (!review) throw new NotFoundException('Review not found');
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    // Mọi người dùng đã đăng nhập đều có thể phản hồi đánh giá công khai
+
+    const reply = await this.prisma.reviewReply.create({
+      data: {
+        reviewId,
+        userId,
+        comment: dto.comment,
+        images: dto.images ?? [],
+      },
+      include: {
+        user: { select: { id: true, firstName: true, lastName: true, avatar: true } },
+      },
+    });
+
+    return {
+      reply: {
+        id: reply.id,
+        comment: reply.comment,
+        images: reply.images || [],
+        createdAt: reply.createdAt,
+        user: {
+          id: reply.user.id,
+          name: `${reply.user.firstName} ${reply.user.lastName}`,
+          avatar: reply.user.avatar,
+        },
+      },
+    };
   }
 }

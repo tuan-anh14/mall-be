@@ -144,6 +144,7 @@ model User {
 
   sellerRequest SellerRequest?
   auditLogs     AuditLog[]
+  reviewReplies ReviewReply[]
 
   wallet        Wallet?
   viewHistories ProductViewHistory[]
@@ -360,10 +361,27 @@ model Review {
   product      Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
   user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   helpfulVotes ReviewHelpful[]
+  replies      ReviewReply[]
 
   @@unique([productId, userId])
   @@index([productId])
   @@map("reviews")
+}
+
+model ReviewReply {
+  id        String   @id @default(cuid())
+  reviewId  String
+  userId    String
+  comment   String   @db.Text
+  images    String[] @default([])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  review    Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([reviewId])
+  @@map("review_replies")
 }
 
 model ReviewHelpful {
