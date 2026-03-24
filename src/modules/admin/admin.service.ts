@@ -26,6 +26,54 @@ export class AdminService {
     private readonly notificationsService: NotificationsService,
   ) {}
 
+  private validateCouponPayload(dto: {
+    type?: 'PERCENTAGE' | 'FIXED_AMOUNT';
+    value?: number;
+    minOrderAmount?: number;
+    maxDiscount?: number;
+    usageLimit?: number;
+    validFrom?: string;
+    validUntil?: string;
+  }) {
+    const assertNonNegativeNumber = (value: number | undefined, field: string) => {
+      if (value === undefined) return;
+      if (!Number.isFinite(value) || value < 0) {
+        throw new BadRequestException(`${field} phải là số không âm hợp lệ`);
+      }
+    };
+
+    assertNonNegativeNumber(dto.value, 'Giá trị giảm');
+    assertNonNegativeNumber(dto.minOrderAmount, 'Đơn hàng tối thiểu');
+    assertNonNegativeNumber(dto.maxDiscount, 'Giảm tối đa');
+
+    if (dto.usageLimit !== undefined && (!Number.isInteger(dto.usageLimit) || dto.usageLimit < 1)) {
+      throw new BadRequestException('Giới hạn lượt dùng phải là số nguyên lớn hơn 0');
+    }
+
+    if (dto.type === 'PERCENTAGE' && dto.value !== undefined && dto.value > 100) {
+      throw new BadRequestException('Mã giảm theo phần trăm không được vượt quá 100%');
+    }
+
+    if (dto.type === 'FIXED_AMOUNT' && dto.maxDiscount !== undefined) {
+      throw new BadRequestException('Mã giảm số tiền cố định không dùng trường giảm tối đa');
+    }
+
+    const validFrom = dto.validFrom ? new Date(dto.validFrom) : undefined;
+    const validUntil = dto.validUntil ? new Date(dto.validUntil) : undefined;
+
+    if (validFrom && Number.isNaN(validFrom.getTime())) {
+      throw new BadRequestException('Thời gian bắt đầu không hợp lệ');
+    }
+
+    if (validUntil && Number.isNaN(validUntil.getTime())) {
+      throw new BadRequestException('Thời gian hết hạn không hợp lệ');
+    }
+
+    if (validFrom && validUntil && validUntil <= validFrom) {
+      throw new BadRequestException('Thời gian hết hạn phải sau thời gian bắt đầu');
+    }
+  }
+
   // ─── AUDIT LOG ─────────────────────────────────────────────────────────────
 
   async logAction(adminId: string, action: string, resource: string, resourceId?: string, details?: any) {
@@ -251,6 +299,8 @@ export class AdminService {
   }
 
   async createCoupon(dto: CreateCouponDto) {
+    this.validateCouponPayload(dto);
+
     let coupon: any;
     try {
       coupon = await this.prisma.coupon.create({
@@ -290,6 +340,32 @@ export class AdminService {
   }
 
   async updateCoupon(id: string, dto: UpdateCouponDto) {
+    const current = await this.prisma.coupon.findUnique({ where: { id } });
+    if (!current) throw new NotFoundException('Mã giảm giá không tồn tại');
+
+    this.validateCouponPayload({
+      type: dto.type ?? current.type,
+      value: dto.value ?? Number(current.value),
+      minOrderAmount:
+        dto.minOrderAmount !== undefined
+          ? dto.minOrderAmount
+          : current.minOrderAmount != null
+            ? Number(current.minOrderAmount)
+            : undefined,
+      maxDiscount:
+        dto.maxDiscount !== undefined
+          ? dto.maxDiscount
+          : current.maxDiscount != null
+            ? Number(current.maxDiscount)
+            : undefined,
+      usageLimit: dto.usageLimit ?? current.usageLimit ?? undefined,
+      validFrom: dto.validFrom ?? current.validFrom.toISOString(),
+      validUntil:
+        dto.validUntil !== undefined
+          ? dto.validUntil || undefined
+          : current.validUntil?.toISOString(),
+    });
+
     try {
       return await this.prisma.coupon.update({
         where: { id },
@@ -308,6 +384,30 @@ export class AdminService {
   }
 
   async deleteCoupon(id: string) {
+    const coupon = await this.prisma.coupon.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        isActive: true,
+        _count: { select: { usages: true } },
+      },
+    });
+    if (!coupon) throw new NotFoundException('Mã giảm giá không tồn tại');
+    if (coupon._count.usages > 0 && coupon.isActive) {
+      await this.prisma.coupon.update({
+        where: { id },
+        data: {
+          isActive: false,
+          validUntil: new Date(),
+        },
+      });
+
+      return { message: 'Đã tắt mã giảm giá đã được sử dụng' };
+    }
+    if (coupon._count.usages > 0) {
+      throw new BadRequestException('Không thể xóa mã giảm giá đã được sử dụng');
+    }
+
     try {
       await this.prisma.coupon.delete({ where: { id } });
     } catch (e: any) {
