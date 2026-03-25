@@ -241,6 +241,7 @@ export class ProfileService {
         id: true,
         firstName: true,
         lastName: true,
+        avatar: true,
         createdAt: true,
         _count: {
           select: {
@@ -255,6 +256,7 @@ export class ProfileService {
       profile: {
         id: user.id,
         name: `${user.firstName} ${user.lastName}`.trim(),
+        avatar: user.avatar,
         memberSince: user.createdAt,
         orderCount: user._count.orders,
         reviewCount: user._count.reviews,

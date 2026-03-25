@@ -13,6 +13,7 @@ const PRODUCT_INCLUDE = {
       storeSlug: true,
       isVerified: true,
       positiveRating: true,
+      user: { select: { avatar: true } },
     },
   },
   images: { orderBy: { sortOrder: 'asc' as const } },
@@ -54,7 +55,17 @@ export class ProductsService {
         (product.images ?? []).find((img: any) => img.isPrimary)?.url ??
         (product.images ?? [])[0]?.url ??
         null,
-      seller: product.seller ?? null,
+      seller: product.seller
+        ? {
+            id: product.seller.id,
+            userId: product.seller.userId,
+            storeName: product.seller.storeName,
+            storeSlug: product.seller.storeSlug,
+            isVerified: product.seller.isVerified,
+            positiveRating: product.seller.positiveRating,
+            avatar: product.seller.user?.avatar || null,
+          }
+        : null,
       images: (product.images ?? []).map((img: any) => ({
         id: img.id,
         url: img.url,
@@ -266,6 +277,7 @@ export class ProductsService {
         totalRatings: sellerProfile.totalRatings,
         isVerified: sellerProfile.isVerified,
         memberSince: sellerProfile.createdAt,
+        avatar: sellerProfile.user?.avatar || null,
         totalProducts,
       },
       products: products.map((p) => this.formatProduct(p)),

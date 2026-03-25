@@ -5,11 +5,12 @@ import {
   Post,
   UseInterceptors,
   UploadedFiles,
+  UploadedFile,
   BadRequestException,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { FilesInterceptor } from '@nestjs/platform-express';
+import { FilesInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
   ApiOperation,
@@ -60,6 +61,33 @@ export class UploadController {
       files.map((file) => this.storageService.upload(file, 'products')),
     );
     return { urls: results.map((r) => r.url) };
+  }
+
+  @Post('avatar')
+  @ApiOperation({
+    summary: 'Upload user avatar (max 1 file, PNG/JPG/WEBP, 5MB)',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Avatar uploaded successfully',
+    schema: { example: { url: 'https://res.cloudinary.com/...' } },
+  })
+  @ApiUnauthorizedResponse({ description: 'Not authenticated' })
+  @ApiBadRequestResponse({ description: 'No file or invalid file type/size' })
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadAvatar(@UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file provided');
+    const result = await this.storageService.upload(file, 'avatars');
+    return { url: result.url };
   }
 
   @Delete('images')
