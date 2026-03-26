@@ -8,8 +8,26 @@ export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
   private async getSellerProfile(userId: string) {
-    const profile = await this.prisma.sellerProfile.findUnique({ where: { userId } });
-    if (!profile) throw new ForbiddenException('Seller profile not found');
+    let profile = await this.prisma.sellerProfile.findUnique({ where: { userId } });
+    if (!profile) {
+      const user = await this.prisma.user.findUnique({ where: { id: userId } });
+      if (user && user.userType === 'SELLER') {
+        const base = `${user.firstName} ${user.lastName}`
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 30);
+        profile = await this.prisma.sellerProfile.create({
+          data: {
+            userId: user.id,
+            storeName: `${user.firstName} ${user.lastName}'s Store`,
+            storeSlug: `${base}-${user.id.slice(-8)}`,
+          },
+        });
+      } else {
+        throw new ForbiddenException('Seller profile not found');
+      }
+    }
     return profile;
   }
 
