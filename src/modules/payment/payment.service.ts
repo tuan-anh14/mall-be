@@ -1,8 +1,9 @@
-import { forwardRef, Inject, Injectable } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { WalletService } from '../wallet/wallet.service';
+import { OrdersService } from '../orders/orders.service';
 import * as crypto from 'crypto';
-import * as qs from 'querystring';
+import * as qs from 'qs';
 import * as moment from 'moment';
 import { WalletTransactionStatus } from 'generated/prisma/client';
 
@@ -14,9 +15,11 @@ export class PaymentService {
   private readonly defaultReturnUrl: string;
 
   constructor(
+    private readonly configService: ConfigService,
     @Inject(forwardRef(() => WalletService))
     private readonly walletService: WalletService,
-    private readonly configService: ConfigService,
+    @Inject(forwardRef(() => OrdersService))
+    private readonly ordersService: OrdersService,
   ) {
     this.tmnCode = this.configService.get<string>('VNP_TMN_CODE', '');
     this.secretKey = this.configService.get<string>('VNP_HASH_SECRET', '');
@@ -94,6 +97,14 @@ export class PaymentService {
     let status: WalletTransactionStatus = WalletTransactionStatus.FAILED;
     if (responseCode === '00') status = WalletTransactionStatus.COMPLETED;
     else if (responseCode === '24') status = WalletTransactionStatus.CANCELLED;
+
+    if (txnId.startsWith('ORD-')) {
+      return this.ordersService.handlePaymentCallback(
+        txnId,
+        status,
+        query,
+      );
+    }
 
     return this.walletService.handleDepositCallback(
       txnId,

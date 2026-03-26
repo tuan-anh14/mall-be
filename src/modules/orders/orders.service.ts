@@ -12,6 +12,7 @@ import {
   OrderStatus,
   TrackingStatus,
   NotificationType as PrismaNotificationType, // Just in case of conflicts
+  WalletTransactionStatus,
 } from 'generated/prisma/client';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { QueryOrdersDto } from './dto/query-orders.dto';
@@ -509,12 +510,38 @@ export class OrdersService {
         data: { status: wasWalletPaid ? OrderStatus.REFUNDED : OrderStatus.CANCELLED },
       });
 
-      // Restore product stock
+      // Restore product stock and user cart
       for (const item of order.items) {
         await tx.product.update({
           where: { id: item.productId },
           data: { stock: { increment: item.quantity } },
         });
+
+        const existingCartItem = await tx.cartItem.findFirst({
+          where: {
+            userId,
+            productId: item.productId,
+            selectedColor: item.selectedColor,
+            selectedSize: item.selectedSize,
+          },
+        });
+
+        if (existingCartItem) {
+          await tx.cartItem.update({
+            where: { id: existingCartItem.id },
+            data: { quantity: { increment: item.quantity } },
+          });
+        } else {
+          await tx.cartItem.create({
+            data: {
+              userId,
+              productId: item.productId,
+              quantity: item.quantity,
+              selectedColor: item.selectedColor,
+              selectedSize: item.selectedSize,
+            },
+          });
+        }
       }
     });
 
@@ -542,4 +569,49 @@ export class OrdersService {
 
     return { order: this.formatOrder(updated) };
   }
+
+  async handlePaymentCallback(orderId: string, status: WalletTransactionStatus, gatewayData?: any) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: true },
+    });
+
+    if (!order) return { message: 'Order not found' };
+    if (order.status !== OrderStatus.PENDING) return { message: 'Order already processed' };
+
+    if (status === WalletTransactionStatus.COMPLETED) {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.order.update({
+          where: { id: orderId },
+          data: {
+            status: OrderStatus.CONFIRMED,
+            paymentRef: gatewayData?.vnp_TransactionNo ?? null,
+          },
+        });
+
+        await tx.orderTracking.updateMany({
+          where: { orderId, sortOrder: 1 },
+          data: { isCompleted: true, completedAt: new Date(), isCurrent: true },
+        });
+        await tx.orderTracking.updateMany({
+          where: { orderId, sortOrder: 0 },
+          data: { isCurrent: false },
+        });
+      });
+
+      this.notifications.createNotification({
+        userId: order.userId,
+        type: NotificationType.ORDER,
+        title: 'Thanh toán thành công',
+        message: `Đơn hàng ${orderId} đã được thanh toán thành công.`,
+        actionPage: 'orders',
+      }).catch(() => {});
+
+    } else if (status === WalletTransactionStatus.CANCELLED || status === WalletTransactionStatus.FAILED) {
+      await this.cancelOrder(order.userId, orderId);
+    }
+
+    return { success: true, orderId, status };
+  }
 }
+
