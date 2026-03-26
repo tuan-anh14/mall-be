@@ -24,6 +24,7 @@ export class ProductsService {
   private async getSellerProfile(userId: string) {
     let profile = await this.prisma.sellerProfile.findUnique({ where: { userId } });
     if (!profile) {
+      // Tự động tạo SellerProfile nếu user là SELLER nhưng bị thiếu data (VD: do seed lỗi)
       const user = await this.prisma.user.findUnique({ where: { id: userId } });
       if (user && user.userType === 'SELLER') {
         const base = `${user.firstName} ${user.lastName}`
@@ -31,15 +32,24 @@ export class ProductsService {
           .replace(/[^a-z0-9]+/g, '-')
           .replace(/^-+|-+$/g, '')
           .slice(0, 30);
-        profile = await this.prisma.sellerProfile.create({
-          data: {
-            userId: user.id,
-            storeName: `${user.firstName} ${user.lastName}'s Store`,
-            storeSlug: `${base}-${user.id.slice(-8)}`,
-          },
-        });
-      } else {
-        throw new ForbiddenException('Seller profile not found');
+        try {
+          profile = await this.prisma.sellerProfile.create({
+            data: {
+              userId: user.id,
+              storeName: `${user.firstName} ${user.lastName}'s Store`,
+              storeSlug: `${base}-${user.id.slice(-8)}`,
+            },
+          });
+        } catch (error: any) {
+          if (error?.code === 'P2002') {
+            profile = await this.prisma.sellerProfile.findUnique({ where: { userId } });
+          } else {
+            throw error;
+          }
+        }
+      }
+      if (!profile) {
+        throw new ForbiddenException('Bạn chưa có hồ sơ người bán');
       }
     }
     return profile;

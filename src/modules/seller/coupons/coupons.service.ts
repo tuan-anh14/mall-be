@@ -69,14 +69,23 @@ export class SellerCouponsService {
           .replace(/[^a-z0-9]+/g, '-')
           .replace(/^-+|-+$/g, '')
           .slice(0, 30);
-        profile = await this.prisma.sellerProfile.create({
-          data: {
-            userId: user.id,
-            storeName: `${user.firstName} ${user.lastName}'s Store`,
-            storeSlug: `${base}-${user.id.slice(-8)}`,
-          },
-        });
-      } else {
+        try {
+          profile = await this.prisma.sellerProfile.create({
+            data: {
+              userId: user.id,
+              storeName: `${user.firstName} ${user.lastName}'s Store`,
+              storeSlug: `${base}-${user.id.slice(-8)}`,
+            },
+          });
+        } catch (error: any) {
+          if (error?.code === 'P2002') {
+            profile = await this.prisma.sellerProfile.findUnique({ where: { userId } });
+          } else {
+            throw error;
+          }
+        }
+      }
+      if (!profile) {
         throw new ForbiddenException('Bạn chưa có hồ sơ người bán');
       }
     }

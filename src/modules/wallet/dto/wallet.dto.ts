@@ -17,12 +17,12 @@ export enum DepositGateway {
 }
 
 export class CreateDepositDto {
-  @ApiProperty({ description: 'Số tiền nạp (USD)', minimum: 1, maximum: 10000 })
+  @ApiProperty({ description: 'Số tiền nạp (VND)', minimum: 10000, maximum: 500000000 })
   @Type(() => Number)
-  @IsNumber()
-  @IsPositive()
-  @Min(1)
-  @Max(10000)
+  @IsNumber({}, { message: 'Số tiền nạp phải là một số' })
+  @IsPositive({ message: 'Số tiền nạp phải là số dương' })
+  @Min(10000, { message: 'Số tiền nạp tối thiểu là 10.000đ' })
+  @Max(500000000, { message: 'Số tiền nạp không được vượt quá 500.000.000đ' })
   amount: number;
 
   @ApiProperty({ enum: DepositGateway })
