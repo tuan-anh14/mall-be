@@ -367,6 +367,10 @@ export class WalletService {
     dto: AdminAdjustWalletDto,
   ) {
     const wallet = await this.getOrCreateWallet(targetUserId);
+    const targetUser = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { email: true, firstName: true, lastName: true },
+    });
     const balance = Number(wallet.balance);
     const newBalance = balance + dto.amount;
 
@@ -391,6 +395,22 @@ export class WalletService {
           balanceAfter: newBalance,
           adminId,
           description: dto.reason,
+        },
+      }),
+      this.prisma.auditLog.create({
+        data: {
+          adminId,
+          action: 'ADJUST_WALLET',
+          resource: 'wallet',
+          resourceId: targetUserId,
+          details: {
+            amount: dto.amount,
+            reason: dto.reason,
+            balanceBefore: balance,
+            balanceAfter: newBalance,
+            targetEmail: targetUser?.email,
+            targetName: targetUser ? `${targetUser.firstName} ${targetUser.lastName}`.trim() : 'Unknown',
+          },
         },
       }),
     ]);
