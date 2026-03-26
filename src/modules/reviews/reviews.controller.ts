@@ -101,4 +101,16 @@ export class ReviewsController {
   ) {
     return this.reviewsService.createReply(userId, reviewId, dto);
   }
+
+  @Post(':id/helpful')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Mark review as helpful' })
+  @ApiParam({ name: 'id', type: String })
+  @ApiResponse({ status: 200, description: 'Marked as helpful' })
+  createHelpfulVote(
+    @CurrentUser('id') userId: string,
+    @Param('id') reviewId: string,
+  ) {
+    return this.reviewsService.createHelpfulVote(userId, reviewId);
+  }
 }

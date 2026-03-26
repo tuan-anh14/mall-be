@@ -258,4 +258,26 @@ export class ReviewsService {
       },
     };
   }
+
+  async createHelpfulVote(userId: string, reviewId: string) {
+    const review = await this.prisma.review.findUnique({ where: { id: reviewId } });
+    if (!review) throw new NotFoundException('Review not found');
+
+    const existing = await this.prisma.reviewHelpful.findUnique({
+      where: { reviewId_userId: { reviewId, userId } },
+    });
+    if (existing) throw new BadRequestException('You have already voted for this review');
+
+    await this.prisma.$transaction([
+      this.prisma.reviewHelpful.create({
+        data: { reviewId, userId },
+      }),
+      this.prisma.review.update({
+        where: { id: reviewId },
+        data: { helpful: { increment: 1 } },
+      }),
+    ]);
+
+    return { success: true };
+  }
 }
