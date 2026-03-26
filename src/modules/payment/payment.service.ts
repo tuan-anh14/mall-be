@@ -4,6 +4,7 @@ import { WalletService } from '../wallet/wallet.service';
 import * as crypto from 'crypto';
 import * as qs from 'querystring';
 import * as moment from 'moment';
+import { WalletTransactionStatus } from 'generated/prisma/client';
 
 @Injectable()
 export class PaymentService {
@@ -90,11 +91,13 @@ export class PaymentService {
       return { RspCode: '97', Message: 'Invalid signature' };
     }
 
-    const success = responseCode === '00';
+    let status: WalletTransactionStatus = WalletTransactionStatus.FAILED;
+    if (responseCode === '00') status = WalletTransactionStatus.COMPLETED;
+    else if (responseCode === '24') status = WalletTransactionStatus.CANCELLED;
 
     return this.walletService.handleDepositCallback(
       txnId,
-      success,
+      status,
       transactionNo,
       query,
     );
@@ -110,10 +113,11 @@ export class PaymentService {
     const transId = String(body['transId'] ?? '');
 
     const success = resultCode === 0;
+    const status = success ? WalletTransactionStatus.COMPLETED : WalletTransactionStatus.FAILED;
 
     return this.walletService.handleDepositCallback(
       txnId,
-      success,
+      status,
       transId,
       body,
     );
@@ -125,7 +129,7 @@ export class PaymentService {
   async simulateDeposit(txnId: string) {
     return this.walletService.handleDepositCallback(
       txnId,
-      true,
+      WalletTransactionStatus.COMPLETED,
       `MOCK-${Date.now()}`,
       { simulated: true },
     );

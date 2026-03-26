@@ -157,7 +157,7 @@ export class WalletService {
 
   async handleDepositCallback(
     txnId: string,
-    success: boolean,
+    status: WalletTransactionStatus,
     gatewayTxnId?: string,
     gatewayData?: any,
   ) {
@@ -171,16 +171,16 @@ export class WalletService {
       return { message: 'Already processed' };
     }
 
-    if (!success) {
+    if (status !== WalletTransactionStatus.COMPLETED) {
       await this.prisma.walletTransaction.update({
         where: { id: txnId },
         data: {
-          status: WalletTransactionStatus.FAILED,
+          status,
           gatewayTxnId,
           gatewayData,
         },
       });
-      return { message: 'Payment failed' };
+      return { message: 'Payment failed or cancelled' };
     }
 
     const newBalance = Number(txn.wallet.balance) + Number(txn.amount);

@@ -13,7 +13,6 @@ import { Type } from 'class-transformer';
 
 export enum DepositGateway {
   VNPAY = 'VNPAY',
-  MOMO = 'MOMO',
 }
 
 export class CreateDepositDto {
