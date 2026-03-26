@@ -79,4 +79,14 @@ export class WalletController {
     const admin = req.user as User;
     return this.walletService.adminAdjust(admin.id, targetUserId, dto);
   }
+  
+  @Get('admin/user/:userId/transactions')
+  @UseGuards(AdminGuard)
+  @ApiOperation({ summary: 'Admin: get wallet transactions by userId' })
+  adminGetTransactions(
+    @Param('userId') userId: string,
+    @Query() query: QueryWalletTransactionsDto,
+  ) {
+    return this.walletService.adminGetTransactionsByUserId(userId, query);
+  }
 }

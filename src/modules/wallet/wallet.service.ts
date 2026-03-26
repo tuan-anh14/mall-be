@@ -359,6 +359,30 @@ export class WalletService {
     };
   }
 
+  async adminGetTransactionsByUserId(targetUserId: string, query: QueryWalletTransactionsDto) {
+    const { page, limit } = query;
+    const wallet = await this.getOrCreateWallet(targetUserId);
+    const skip = (page - 1) * limit;
+
+    const [transactions, total] = await Promise.all([
+      this.prisma.walletTransaction.findMany({
+        where: { walletId: wallet.id },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.walletTransaction.count({ where: { walletId: wallet.id } }),
+    ]);
+
+    return {
+      transactions: transactions.map(this.formatTransaction),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
   // ─── Admin: Manual Adjustment ──────────────────────────────────────────────
 
   async adminAdjust(
