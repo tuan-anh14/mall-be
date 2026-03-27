@@ -21,6 +21,7 @@ import { WalletModule } from './modules/wallet/wallet.module';
 import { PaymentModule } from './modules/payment/payment.module';
 import { ViewHistoryModule } from './modules/view-history/view-history.module';
 import { RecommendationsModule } from './modules/recommendations/recommendations.module';
+import { BlogsModule } from './modules/blogs/blogs.module';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { SessionAuthGuard } from './common/guards/session-auth.guard';
@@ -60,6 +61,7 @@ import { AppService } from './app.service';
     PaymentModule,
     ViewHistoryModule,
     RecommendationsModule,
+    BlogsModule,
   ],
   controllers: [AppController],
   providers: [

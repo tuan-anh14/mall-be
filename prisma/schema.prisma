@@ -148,6 +148,7 @@ model User {
 
   wallet        Wallet?
   viewHistories ProductViewHistory[]
+  blogs         Blog[]
 
   @@map("users")
 }
@@ -842,4 +843,56 @@ model WalletTransaction {
   @@index([status])
   @@index([createdAt(sort: Desc)])
   @@map("wallet_transactions")
+}
+
+// ============================================================
+// BLOG MODELS
+// ============================================================
+
+enum BlogStatus {
+  DRAFT      // Nháp, chưa gửi duyệt
+  PENDING    // Đang chờ admin duyệt
+  PUBLISHED  // Đã được duyệt, công khai
+  REJECTED   // Bị từ chối
+}
+
+model BlogCategory {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  slug      String   @unique
+  createdAt DateTime @default(now())
+
+  blogs     Blog[]
+
+  @@map("blog_categories")
+}
+
+model Blog {
+  id          String     @id @default(cuid())
+  title       String
+  slug        String     @unique
+  content     String     @db.Text   // HTML content from TipTap WYSIWYG
+  summary     String?    @db.Text   // Short excerpt shown on cards / SEO description
+  thumbnail   String?               // Cover image URL (Cloudinary)
+  status      BlogStatus @default(DRAFT)
+  views       Int        @default(0)
+  readTime    Int        @default(1) // Estimated reading time in minutes
+
+  // Rejection reason from admin
+  adminNote   String?
+
+  authorId    String
+  categoryId  String
+
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  author      User         @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  category    BlogCategory @relation(fields: [categoryId], references: [id])
+
+  @@index([authorId])
+  @@index([status])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([slug])
+  @@map("blogs")
 }
