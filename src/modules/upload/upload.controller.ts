@@ -90,6 +90,33 @@ export class UploadController {
     return { url: result.url };
   }
 
+  @Post('blog')
+  @ApiOperation({
+    summary: 'Upload blog image (max 1 file, PNG/JPG/WEBP, 10MB)',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Blog image uploaded successfully',
+    schema: { example: { url: 'https://res.cloudinary.com/...' } },
+  })
+  @ApiUnauthorizedResponse({ description: 'Not authenticated' })
+  @ApiBadRequestResponse({ description: 'No file or invalid file type/size' })
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadBlogImage(@UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file provided');
+    const result = await this.storageService.upload(file, 'blogs');
+    return { url: result.url };
+  }
+
   @Delete('images')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Delete an uploaded image by its URL' })
