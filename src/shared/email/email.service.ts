@@ -19,22 +19,67 @@ export class EmailService {
     });
   }
 
+  async sendVerificationEmail(to: string, code: string): Promise<void> {
+    const from = this.configService.get<string>('email.from');
+    
+    this.logger.debug(`Sending verification code ${code} to ${to}`);
+
+    try {
+      await this.transporter.sendMail({
+        from,
+        to,
+        subject: 'Xác thực tài khoản Shop MALL',
+        html: `
+          <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 40px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff; color: #1a202c;">
+            <div style="text-align: center; margin-bottom: 32px;">
+              <h1 style="color: #2563eb; margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.025em;">Shop <span style="color: #1e3a8a;">MALL</span></h1>
+            </div>
+            <h2 style="color: #2d3748; text-align: center; margin-bottom: 24px; font-size: 20px; font-weight: 600;">Chào mừng bạn đến với Shop MALL!</h2>
+            <p style="color: #4a5568; font-size: 16px; line-height: 1.6; margin-bottom: 24px;">Cảm ơn bạn đã đăng ký tài khoản. Vui lòng sử dụng mã dưới đây để xác thực địa chỉ email của mình:</p>
+            <div style="background-color: #f8fafc; padding: 24px; text-align: center; font-size: 36px; font-weight: 800; letter-spacing: 0.25em; color: #2563eb; margin: 24px 0; border-radius: 12px; border: 2px dashed #cbd5e1;">
+              ${code}
+            </div>
+            <p style="color: #ef4444; font-size: 14px; font-weight: 500; text-align: center; margin-bottom: 32px;">⚠️ Mã này sẽ hết hạn sau 10 phút.</p>
+            <p style="color: #718096; font-size: 14px; line-height: 1.5; text-align: center;">Nếu bạn không thực hiện yêu cầu này, bạn có thể an tâm bỏ qua email này.</p>
+            <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 40px 0;">
+            <p style="font-size: 12px; color: #a0aec0; text-align: center; margin: 0;">&copy; 2026 Shop MALL. Premium Shopping Experience.</p>
+          </div>
+        `,
+      });
+    } catch (err) {
+      this.logger.error(`Failed to send verification email to ${to}`, err);
+    }
+  }
+
   async sendPasswordResetEmail(to: string, rawToken: string): Promise<void> {
-    const frontendUrl = this.configService.get<string>('frontendUrl');
+    const frontendUrl = this.configService.get<string>('frontendUrl') || 'http://localhost:5173';
     const resetUrl = `${frontendUrl}/reset-password?token=${rawToken}`;
+    const from = this.configService.get<string>('email.from');
 
     this.logger.debug(`Password reset link for ${to}: ${resetUrl}`);
 
     try {
       await this.transporter.sendMail({
-        from: this.configService.get<string>('email.from'),
+        from,
         to,
-        subject: 'Reset your password',
+        subject: 'Đặt lại mật khẩu Shop MALL',
         html: `
-          <p>You requested a password reset.</p>
-          <p><a href="${resetUrl}">Click here to reset your password</a></p>
-          <p>This link expires in 1 hour.</p>
-          <p>If you did not request this, you can safely ignore this email.</p>
+          <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 40px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff; color: #1a202c;">
+            <div style="text-align: center; margin-bottom: 32px;">
+              <h1 style="color: #2563eb; margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.025em;">Shop <span style="color: #1e3a8a;">MALL</span></h1>
+            </div>
+            <h2 style="color: #2d3748; text-align: center; margin-bottom: 24px; font-size: 20px; font-weight: 600;">Yêu cầu đặt lại mật khẩu</h2>
+            <p style="color: #4a5568; font-size: 16px; line-height: 1.6; margin-bottom: 32px;">Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản của bạn. Vui lòng nhấn vào nút bên dưới để tiếp tục:</p>
+            <div style="text-align: center; margin-bottom: 32px;">
+              <a href="${resetUrl}" style="background-color: #2563eb; color: #ffffff; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block; font-size: 16px; transition: background-color 0.2s;">Đặt lại mật khẩu</a>
+            </div>
+            <p style="color: #718096; font-size: 14px; margin-top: 32px;">Hoặc sao chép đường dẫn này vào trình duyệt:</p>
+            <p style="word-break: break-all; color: #2563eb; font-size: 12px; background-color: #f8fafc; padding: 12px; border-radius: 6px; border: 1px solid #e2e8f0;">${resetUrl}</p>
+            <p style="color: #ef4444; font-size: 14px; font-weight: 500; margin-top: 24px;">⚠️ Liên kết này sẽ hết hạn sau 1 giờ.</p>
+            <p style="color: #718096; font-size: 14px; margin-top: 24px;">Nếu bạn không yêu cầu đặt lại mật khẩu, bạn có thể an tâm bỏ qua email này.</p>
+            <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 40px 0;">
+            <p style="font-size: 12px; color: #a0aec0; text-align: center; margin: 0;">&copy; 2026 Shop MALL. Premium Shopping Experience.</p>
+          </div>
         `,
       });
     } catch (err) {

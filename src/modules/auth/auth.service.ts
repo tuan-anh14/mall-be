@@ -14,6 +14,7 @@ import { User, UserType } from 'generated/prisma/client';
 import {
   RegisterDto,
   LoginDto,
+  VerifyEmailDto,
   ForgotPasswordDto,
   ResetPasswordDto,
   AuthUserDto,
@@ -31,6 +32,7 @@ import {
   IOAuthAccountRepository,
   OAUTH_ACCOUNT_REPOSITORY,
 } from './repositories/oauth-account.repository.interface';
+import { EmailService } from '@/shared/email/email.service';
 
 export interface OAuthProfile {
   provider: string;
@@ -56,6 +58,7 @@ export class AuthService {
     private readonly passwordResetRepository: IPasswordResetRepository,
     @Inject(OAUTH_ACCOUNT_REPOSITORY)
     private readonly oAuthAccountRepository: IOAuthAccountRepository,
+    private readonly emailService: EmailService,
   ) {}
 
   buildUserResponse(user: User, sellerRequestStatus?: string | null): AuthUserDto {
@@ -118,6 +121,9 @@ export class AuthService {
     const firstName = nameParts[0];
     const lastName = nameParts.slice(1).join(' ');
 
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const verificationExpires = new Date(Date.now() + 10 * 60 * 1000);
+
     const user = await this.prisma.user.create({
       data: {
         email: dto.email,
@@ -125,11 +131,46 @@ export class AuthService {
         firstName,
         lastName,
         userType: UserType.BUYER,
+        verificationCode,
+        verificationExpires,
+        isEmailVerified: false,
       },
     });
 
-    const sessionId = await this.createSession(user.id, req);
-    return { user: this.buildUserResponse(user), sessionId };
+    await this.emailService.sendVerificationEmail(user.email, verificationCode);
+
+    return { user: this.buildUserResponse(user), sessionId: '' };
+  }
+
+  async verifyEmail(dto: VerifyEmailDto): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
+
+    if (!user) {
+      throw new BadRequestException('Email không tồn tại');
+    }
+
+    if (user.isEmailVerified) {
+      throw new BadRequestException('Email đã được xác thực');
+    }
+
+    if (
+      user.verificationCode !== dto.code ||
+      !user.verificationExpires ||
+      user.verificationExpires < new Date()
+    ) {
+      throw new BadRequestException('Mã xác thực không hợp lệ hoặc đã hết hạn');
+    }
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        isEmailVerified: true,
+        verificationCode: null,
+        verificationExpires: null,
+      },
+    });
   }
 
   async login(
@@ -146,6 +187,10 @@ export class AuthService {
       !(await bcrypt.compare(dto.password, user.password))
     ) {
       throw new UnauthorizedException('Invalid email or password');
+    }
+
+    if (!user.isEmailVerified) {
+      throw new UnauthorizedException('Email chưa được xác thực. Vui lòng kiểm tra hộp thư.');
     }
 
     const sessionId = await this.createSession(user.id, req);
@@ -170,6 +215,14 @@ export class AuthService {
       expiresAt: new Date(Date.now() + 60 * 60 * 1000),
     });
 
+    const userWithEmail = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      select: { email: true },
+    });
+    if (userWithEmail) {
+      await this.emailService.sendPasswordResetEmail(userWithEmail.email, rawToken);
+    }
+
     return rawToken;
   }
 
@@ -185,7 +238,10 @@ export class AuthService {
     await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id: reset.userId },
-        data: { password: hashedPassword },
+        data: { 
+          password: hashedPassword,
+          isEmailVerified: true, // Mark as verified since they used the email link
+        },
       }),
       this.prisma.passwordReset.update({
         where: { id: reset.id },

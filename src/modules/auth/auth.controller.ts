@@ -25,6 +25,7 @@ import { EmailService } from '@/shared/email/email.service';
 import {
   RegisterDto,
   LoginDto,
+  VerifyEmailDto,
   ForgotPasswordDto,
   ResetPasswordDto,
   AuthUserDto,
@@ -65,8 +66,23 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ user: AuthUserDto }> {
     const { user, sessionId } = await this.authService.register(dto, req);
-    res.cookie(SESSION_COOKIE, sessionId, this.cookieOptions);
+    if (sessionId) {
+      res.cookie(SESSION_COOKIE, sessionId, this.cookieOptions);
+    }
     return { user };
+  }
+
+  @Public()
+  @Post('verify-email')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Verify email with 6-digit code' })
+  @ApiResponse({ status: 200, description: 'Email verified successfully' })
+  @ApiBadRequestResponse({ description: 'Invalid or expired code' })
+  async verifyEmail(
+    @Body() dto: VerifyEmailDto,
+  ): Promise<{ message: string }> {
+    await this.authService.verifyEmail(dto);
+    return { message: 'Xác thực email thành công' };
   }
 
   @Public()

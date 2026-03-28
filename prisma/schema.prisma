@@ -113,8 +113,10 @@ model User {
   phone           String?
   avatar          String?                         // URL ảnh (initials tính từ firstName/lastName)
   userType        UserType  @default(BUYER)
-  isEmailVerified Boolean   @default(false)
-  memberSince     DateTime  @default(now())
+  isEmailVerified     Boolean   @default(false)
+  verificationCode    String?
+  verificationExpires DateTime?
+  memberSince         DateTime  @default(now())
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 

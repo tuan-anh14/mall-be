@@ -34,6 +34,17 @@ export class LoginDto {
   password: string;
 }
 
+export class VerifyEmailDto {
+  @ApiProperty({ example: 'john@example.com' })
+  @IsEmail()
+  email: string;
+
+  @ApiProperty({ example: '123456' })
+  @IsString()
+  @IsNotEmpty()
+  code: string;
+}
+
 export class ForgotPasswordDto {
   @ApiProperty({ example: 'john@example.com' })
   @IsEmail()
