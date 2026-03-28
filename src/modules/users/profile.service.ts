@@ -27,11 +27,16 @@ export class ProfileService {
       isEmailVerified: user.isEmailVerified,
       memberSince: user.memberSince,
       createdAt: user.createdAt,
+      isSuspended: user.sellerProfile?.isSuspended ?? false,
+      isClosed: user.sellerProfile?.isClosed ?? false,
     };
   }
 
   async getProfile(userId: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { sellerProfile: true },
+    });
     if (!user) throw new NotFoundException('User not found');
     return { user: this.formatUser(user) };
   }

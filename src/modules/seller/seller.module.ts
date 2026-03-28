@@ -9,6 +9,8 @@ import { SellerReviewsController } from './reviews/reviews.controller';
 import { SellerReviewsService } from './reviews/reviews.service';
 import { SellerCouponsController } from './coupons/coupons.controller';
 import { SellerCouponsService } from './coupons/coupons.service';
+import { SellerProfileController } from './profile/seller-profile.controller';
+import { SellerProfileService } from './profile/seller-profile.service';
 
 @Module({
   controllers: [
@@ -17,6 +19,7 @@ import { SellerCouponsService } from './coupons/coupons.service';
     OrdersController,
     SellerReviewsController,
     SellerCouponsController,
+    SellerProfileController,
   ],
   providers: [
     DashboardService,
@@ -24,6 +27,7 @@ import { SellerCouponsService } from './coupons/coupons.service';
     OrdersService,
     SellerReviewsService,
     SellerCouponsService,
+    SellerProfileService,
   ],
 })
 export class SellerModule {}

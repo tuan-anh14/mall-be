@@ -174,7 +174,9 @@ export class ProductsService {
             brand: dto.brand,
             featured: dto.featured ?? false,
             trending: dto.trending ?? false,
-            status: dto.stock === 0 ? ProductStatus.OUT_OF_STOCK : ProductStatus.ACTIVE,
+            status: profile.isSuspended 
+              ? ProductStatus.INACTIVE 
+              : (dto.stock === 0 ? ProductStatus.OUT_OF_STOCK : ProductStatus.ACTIVE),
           },
         });
 
@@ -249,7 +251,12 @@ export class ProductsService {
         if (dto.brand !== undefined) data.brand = dto.brand;
         if (dto.featured !== undefined) data.featured = dto.featured;
         if (dto.trending !== undefined) data.trending = dto.trending;
-        if (dto.status !== undefined) data.status = dto.status;
+        if (dto.status !== undefined) {
+          if (profile.isSuspended && dto.status === ProductStatus.ACTIVE) {
+            throw new ForbiddenException('Không thể kích hoạt sản phẩm khi cửa hàng đang tạm ngưng');
+          }
+          data.status = dto.status;
+        }
 
         // Auto-compute discount when price fields change
         const finalPrice = dto.price ?? Number(existing.price);
@@ -263,12 +270,17 @@ export class ProductsService {
 
         // Auto-set status based on stock when status is not explicitly provided
         if (dto.stock !== undefined && dto.status === undefined) {
-          data.status =
-            dto.stock === 0
-              ? ProductStatus.OUT_OF_STOCK
-              : existing.status === ProductStatus.OUT_OF_STOCK
-                ? ProductStatus.ACTIVE
-                : existing.status;
+          if (profile.isSuspended) {
+            // If suspended, keep it INACTIVE or OUT_OF_STOCK
+            data.status = dto.stock === 0 ? ProductStatus.OUT_OF_STOCK : ProductStatus.INACTIVE;
+          } else {
+            data.status =
+              dto.stock === 0
+                ? ProductStatus.OUT_OF_STOCK
+                : existing.status === ProductStatus.OUT_OF_STOCK
+                  ? ProductStatus.ACTIVE
+                  : existing.status;
+          }
         }
 
         await tx.product.update({ where: { id: productId }, data });
