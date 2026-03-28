@@ -48,6 +48,7 @@ export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    @Inject(forwardRef(() => WalletService))
     private readonly walletService: WalletService,
     @Inject(forwardRef(() => PaymentService))
     private readonly paymentService: PaymentService,

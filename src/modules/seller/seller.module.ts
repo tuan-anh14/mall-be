@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { DashboardController } from './dashboard/dashboard.controller';
 import { DashboardService } from './dashboard/dashboard.service';
 import { ProductsController } from './products/products.controller';
@@ -11,8 +11,10 @@ import { SellerCouponsController } from './coupons/coupons.controller';
 import { SellerCouponsService } from './coupons/coupons.service';
 import { SellerProfileController } from './profile/seller-profile.controller';
 import { SellerProfileService } from './profile/seller-profile.service';
+import { WalletModule } from '../wallet/wallet.module';
 
 @Module({
+  imports: [forwardRef(() => WalletModule)],
   controllers: [
     DashboardController,
     ProductsController,

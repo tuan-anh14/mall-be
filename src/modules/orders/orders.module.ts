@@ -8,7 +8,7 @@ import { PaymentModule } from '../payment/payment.module';
 @Module({
   imports: [
     NotificationsModule,
-    WalletModule,
+    forwardRef(() => WalletModule),
     forwardRef(() => PaymentModule),
   ],
   controllers: [OrdersController],

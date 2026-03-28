@@ -83,3 +83,42 @@ export class QueryAdminWalletsDto {
   @IsString()
   search?: string;
 }
+
+export class CreateWithdrawDto {
+  @ApiProperty({ description: 'Số tiền rút (VND)', minimum: 10000 })
+  @Type(() => Number)
+  @IsNumber({}, { message: 'Số tiền rút phải là một số' })
+  @IsPositive({ message: 'Số tiền rút phải là số dương' })
+  @Min(50000, { message: 'Số tiền rút tối thiểu là 50.000đ' })
+  amount: number;
+
+  @ApiProperty({ description: 'ID phương thức thanh toán/ngân hàng đã lưu' })
+  @IsOptional()
+  @IsString()
+  paymentMethodId?: string;
+
+  @ApiPropertyOptional({ description: 'Tên ngân hàng (nếu chưa lưu)' })
+  @IsOptional()
+  @IsString()
+  bankName?: string;
+
+  @ApiPropertyOptional({ description: 'Số tài khoản (nếu chưa lưu)' })
+  @IsOptional()
+  @IsString()
+  bankAccount?: string;
+
+  @ApiPropertyOptional({ description: 'Tên chủ tài khoản (nếu chưa lưu)' })
+  @IsOptional()
+  @IsString()
+  accountHolder?: string;
+}
+
+export class WalletStatsDto {
+  balance: number;
+  totalIncome: number;    // Gross (Income + Fee)
+  netIncome: number;      // Actual (Income)
+  totalFees: number;      // 5% fees
+  totalSpent: number;     // Expenses
+  totalWithdrawn: number; 
+  totalRefunded: number;
+}

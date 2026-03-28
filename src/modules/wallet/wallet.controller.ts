@@ -16,6 +16,7 @@ import { WalletService } from './wallet.service';
 import {
   AdminAdjustWalletDto,
   CreateDepositDto,
+  CreateWithdrawDto,
   QueryAdminWalletsDto,
   QueryWalletTransactionsDto,
 } from './dto/wallet.dto';
@@ -50,6 +51,20 @@ export class WalletController {
   createDeposit(@Req() req: Request, @Body() dto: CreateDepositDto) {
     const user = req.user as User;
     return this.walletService.createDepositIntent(user.id, dto);
+  }
+
+  @Get('stats')
+  @ApiOperation({ summary: 'Get wallet statistics' })
+  getStats(@Req() req: Request) {
+    const user = req.user as User;
+    return this.walletService.getWalletStats(user.id);
+  }
+
+  @Post('withdraw')
+  @ApiOperation({ summary: 'Initiate a withdrawal' })
+  withdraw(@Req() req: Request, @Body() dto: CreateWithdrawDto) {
+    const user = req.user as User;
+    return this.walletService.withdraw(user.id, dto);
   }
 
   // ─── Admin Endpoints ────────────────────────────────────────────────────────

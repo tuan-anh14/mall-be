@@ -13,9 +13,11 @@ import {
 import {
   AdminAdjustWalletDto,
   CreateDepositDto,
+  CreateWithdrawDto,
   DepositGateway,
   QueryAdminWalletsDto,
   QueryWalletTransactionsDto,
+  WalletStatsDto,
 } from './dto/wallet.dto';
 import { PaymentService } from '../payment/payment.service';
 
@@ -443,6 +445,214 @@ export class WalletService {
       previousBalance: balance,
       adjustment: dto.amount,
       newBalance,
+    };
+  }
+
+  // ─── Buyer/Seller: Withdrawal ──────────────────────────────────────────────
+
+  async withdraw(userId: string, dto: CreateWithdrawDto) {
+    const wallet = await this.getOrCreateWallet(userId);
+    const balance = Number(wallet.balance);
+
+    if (balance < dto.amount) {
+      throw new BadRequestException('Số dư ví không đủ để thực hiện rút tiền');
+    }
+
+    const newBalance = balance - dto.amount;
+
+    // Resolve target account info
+    let targetInfo = '';
+    if (dto.paymentMethodId) {
+      const pm = await this.prisma.paymentMethod.findUnique({
+        where: { id: dto.paymentMethodId, userId },
+      });
+      if (!pm) throw new NotFoundException('Phương thức thanh toán không tồn tại');
+      targetInfo = `${pm.brand} **** ${pm.lastFour} (${pm.cardholderName})`;
+    } else if (dto.bankName && dto.bankAccount) {
+      targetInfo = `${dto.bankName} - ${dto.bankAccount} (${dto.accountHolder ?? 'N/A'})`;
+    } else {
+      throw new BadRequestException('Thông tin tài khoản nhận tiền không đầy đủ');
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.wallet.update({
+        where: { id: wallet.id },
+        data: { balance: newBalance },
+      }),
+      this.prisma.walletTransaction.create({
+        data: {
+          walletId: wallet.id,
+          type: WalletTransactionType.WITHDRAW,
+          status: WalletTransactionStatus.COMPLETED, // Mark as completed for now as per "simple" requirement
+          amount: dto.amount,
+          balanceBefore: balance,
+          balanceAfter: newBalance,
+          description: `Rút tiền về: ${targetInfo}`,
+        },
+      }),
+    ]);
+
+    return {
+      previousBalance: balance,
+      withdrawnAmount: dto.amount,
+      newBalance,
+      targetInfo,
+    };
+  }
+
+  // ─── Internal: Process Order Payout ────────────────────────────────────────
+
+  async processOrderPayout(orderId: string) {
+    // 1. Fetch order with items and sellers
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: {
+          include: {
+            product: {
+              include: { seller: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!order) throw new Error(`Order ${orderId} not found for payout`);
+    
+    // 2. Check if payout already processed (Idempotency)
+    const existingPayout = await this.prisma.walletTransaction.findFirst({
+      where: {
+        orderId,
+        type: { in: [WalletTransactionType.SELLER_INCOME] },
+      },
+    });
+    if (existingPayout) return; // Already processed
+
+    const orderTotal = Number(order.total);
+    const orderSubtotal = Number(order.subtotal);
+    const orderDiscount = Number(order.couponDiscount || 0);
+
+    // 3. Group by seller
+    const sellerMap = new Map<string, { userId: string; gross: number }>();
+    
+    for (const item of order.items) {
+      const seller = item.product.seller;
+      if (!seller) continue;
+      
+      const itemTotal = Number(item.price) * item.quantity;
+      const current = sellerMap.get(seller.id) || { userId: seller.userId, gross: 0 };
+      current.gross += itemTotal;
+      sellerMap.set(seller.id, current);
+    }
+
+    // 4. Process each seller in transaction
+    await this.prisma.$transaction(async (tx) => {
+      for (const [sellerId, data] of sellerMap.entries()) {
+        const wallet = await tx.wallet.findUnique({ where: { userId: data.userId } });
+        if (!wallet) {
+          // Create wallet if not exists
+          await tx.wallet.create({ data: { userId: data.userId, balance: 0 } });
+        }
+        
+        const currentWallet = await tx.wallet.findUniqueOrThrow({ where: { userId: data.userId } });
+        const balanceBefore = Number(currentWallet.balance);
+
+        // Actual Revenue for this seller (proportional discount)
+        const sellerShare = data.gross / orderSubtotal;
+        const sellerDiscount = orderDiscount * sellerShare;
+        const revenueThucTe = data.gross - sellerDiscount;
+
+        const phiSan = revenueThucTe * 0.05;
+        const netIncome = revenueThucTe - phiSan;
+
+        const balanceAfterIncome = balanceBefore + revenueThucTe;
+        const finalBalance = balanceAfterIncome - phiSan;
+
+        // Record SELLER_INCOME (Gross share)
+        await tx.walletTransaction.create({
+          data: {
+            walletId: currentWallet.id,
+            type: WalletTransactionType.SELLER_INCOME,
+            status: WalletTransactionStatus.COMPLETED,
+            amount: revenueThucTe,
+            balanceBefore: balanceBefore,
+            balanceAfter: balanceAfterIncome,
+            orderId,
+            description: `Doanh thu đơn hàng ${orderId}`,
+          },
+        });
+
+        // Record SELLER_FEE_DEDUCTED (5%)
+        await tx.walletTransaction.create({
+          data: {
+            walletId: currentWallet.id,
+            type: WalletTransactionType.SELLER_FEE_DEDUCTED,
+            status: WalletTransactionStatus.COMPLETED,
+            amount: phiSan,
+            balanceBefore: balanceAfterIncome,
+            balanceAfter: finalBalance,
+            orderId,
+            description: `Phí sàn (5%) cho đơn hàng ${orderId}`,
+          },
+        });
+
+        // Update balance
+        await tx.wallet.update({
+          where: { id: currentWallet.id },
+          data: { balance: finalBalance },
+        });
+      }
+    });
+  }
+
+  // ─── Reporting: Wallet Stats ───────────────────────────────────────────────
+
+  async getWalletStats(userId: string): Promise<WalletStatsDto> {
+    const wallet = await this.getOrCreateWallet(userId);
+    
+    const transactions = await this.prisma.walletTransaction.findMany({
+      where: { walletId: wallet.id, status: WalletTransactionStatus.COMPLETED },
+    });
+
+    let totalIncome = 0;
+    let netIncome = 0;
+    let totalFees = 0;
+    let totalSpent = 0;
+    let totalWithdrawn = 0;
+    let totalRefunded = 0;
+
+    for (const t of transactions) {
+      const amt = Number(t.amount);
+      switch (t.type) {
+        case WalletTransactionType.SELLER_INCOME:
+          netIncome += amt;
+          break;
+        case WalletTransactionType.SELLER_FEE_DEDUCTED:
+          totalFees += amt;
+          break;
+        case WalletTransactionType.PAYMENT:
+          totalSpent += amt;
+          break;
+        case WalletTransactionType.WITHDRAW:
+          totalWithdrawn += amt;
+          break;
+        case WalletTransactionType.REFUND:
+          totalRefunded += amt;
+          break;
+      }
+    }
+
+    // Gross income is what seller earned before fee
+    totalIncome = netIncome + totalFees;
+
+    return {
+      balance: Number(wallet.balance),
+      totalIncome,
+      netIncome,
+      totalFees,
+      totalSpent,
+      totalWithdrawn,
+      totalRefunded,
     };
   }
 }

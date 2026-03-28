@@ -53,10 +53,13 @@ enum PaymentMethodType {
 }
 
 enum WalletTransactionType {
-  DEPOSIT     // Nạp tiền vào ví
-  PAYMENT     // Thanh toán đơn hàng
-  REFUND      // Hoàn tiền về ví
-  ADJUSTMENT  // Admin điều chỉnh thủ công
+  DEPOSIT             // Nạp tiền vào ví
+  PAYMENT             // Thanh toán đơn hàng (Buyer)
+  REFUND              // Hoàn tiền về ví
+  ADJUSTMENT          // Admin điều chỉnh thủ công
+  WITHDRAW            // Rút tiền khỏi ví
+  SELLER_INCOME       // Doanh thu bán hàng (Net)
+  SELLER_FEE_DEDUCTED // Phí sàn khấu trừ (5%)
 }
 
 enum WalletTransactionStatus {

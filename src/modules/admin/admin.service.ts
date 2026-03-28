@@ -573,6 +573,7 @@ export class AdminService {
       totalProducts,
       totalOrders,
       revenueRows,
+      platformEarningsRows,
       newUsersThisMonth,
       pendingSellerRequests,
       totalCategories,
@@ -586,6 +587,10 @@ export class AdminService {
       this.prisma.$queryRaw<{ revenue: string }[]>`
         SELECT COALESCE(SUM(total), 0)::text AS revenue FROM orders
       `,
+      this.prisma.$queryRaw<{ earnings: string }[]>`
+        SELECT COALESCE(SUM(amount), 0)::text AS earnings FROM wallet_transactions 
+        WHERE type = 'SELLER_FEE_DEDUCTED' AND status = 'COMPLETED'
+      `,
       this.prisma.user.count({ where: { createdAt: { gte: thirtyDaysAgo } } }),
       this.prisma.sellerRequest.count({ where: { status: 'PENDING' } }),
       this.prisma.category.count(),
@@ -598,7 +603,8 @@ export class AdminService {
       totalBuyers,
       totalProducts,
       totalOrders,
-      totalRevenue: Math.round(Number(revenueRows[0]?.revenue ?? 0)),
+      totalGMV: Math.round(Number(revenueRows[0]?.revenue ?? 0)),
+      totalPlatformEarnings: Math.round(Number(platformEarningsRows[0]?.earnings ?? 0)),
       newUsersThisMonth,
       pendingSellerRequests,
       totalCategories,

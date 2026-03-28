@@ -1,10 +1,13 @@
 import {
   ForbiddenException,
+  forwardRef,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '@/database/prisma.service';
 import { OrderStatus, TrackingStatus } from 'generated/prisma/client';
+import { WalletService } from '../../wallet/wallet.service';
 
 const STATUS_FILTER_MAP: Record<string, OrderStatus[]> = {
   Processing: [
@@ -35,7 +38,11 @@ const STATUS_UPDATE_MAP: Record<string, OrderStatus> = {
 
 @Injectable()
 export class OrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => WalletService))
+    private readonly walletService: WalletService,
+  ) {}
 
   private async getSellerProfile(userId: string) {
     let profile = await this.prisma.sellerProfile.findUnique({ where: { userId } });
@@ -210,6 +217,19 @@ export class OrdersService {
         });
       }
     });
+
+    // ───── Trigger Wallet Payout ─────
+    if (dbStatus === OrderStatus.DELIVERED) {
+      // We do this AFTER the main transaction to ensure order status is updated.
+      // walletService.processOrderPayout has its own transaction and idempotency check.
+      try {
+        await this.walletService.processOrderPayout(orderId);
+      } catch (error) {
+        console.error(`Failed to process payout for order ${orderId}:`, error);
+        // We don't throw here to avoid failing the status update if payout fails
+        // but it should be logged or handled via a retry mechanism.
+      }
+    }
 
     const updated = await this.prisma.order.findUniqueOrThrow({
       where: { id: orderId },

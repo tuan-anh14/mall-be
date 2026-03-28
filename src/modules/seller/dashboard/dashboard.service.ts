@@ -41,6 +41,9 @@ export class DashboardService {
   }
 
   async getStats(userId: string) {
+    const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
+    if (!wallet) return { totalRevenue: 0, netIncome: 0, totalFees: 0, totalOrders: 0, totalProducts: 0, totalCustomers: 0 };
+
     const profile = await this.getSellerProfile(userId);
     const sellerId = profile.id;
 
@@ -48,70 +51,69 @@ export class DashboardService {
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
 
-    // Use raw SQL aggregations to avoid loading all records into memory
-    const [allTimeRows, currentRows, prevRows, totalProducts, currentNewProducts, prevNewProducts] =
-      await Promise.all([
-        // All-time: revenue, orders, customers
-        this.prisma.$queryRaw<{ revenue: string; orders: string; customers: string }[]>`
-          SELECT
-            COALESCE(SUM(oi.price * oi.quantity), 0)::text AS revenue,
-            COUNT(DISTINCT o.id)::text                     AS orders,
-            COUNT(DISTINCT o."userId")::text               AS customers
-          FROM order_items oi
-          JOIN orders o ON o.id = oi."orderId"
-          JOIN products p ON p.id = oi."productId"
-          WHERE p."sellerId" = ${sellerId}
-        `,
-        // Current 30 days
-        this.prisma.$queryRaw<{ revenue: string; orders: string; customers: string }[]>`
-          SELECT
-            COALESCE(SUM(oi.price * oi.quantity), 0)::text AS revenue,
-            COUNT(DISTINCT o.id)::text                     AS orders,
-            COUNT(DISTINCT o."userId")::text               AS customers
-          FROM order_items oi
-          JOIN orders o ON o.id = oi."orderId"
-          JOIN products p ON p.id = oi."productId"
-          WHERE p."sellerId" = ${sellerId}
-            AND o."createdAt" >= ${thirtyDaysAgo}
-        `,
-        // Previous 30 days (30–60 days ago)
-        this.prisma.$queryRaw<{ revenue: string; orders: string; customers: string }[]>`
-          SELECT
-            COALESCE(SUM(oi.price * oi.quantity), 0)::text AS revenue,
-            COUNT(DISTINCT o.id)::text                     AS orders,
-            COUNT(DISTINCT o."userId")::text               AS customers
-          FROM order_items oi
-          JOIN orders o ON o.id = oi."orderId"
-          JOIN products p ON p.id = oi."productId"
-          WHERE p."sellerId" = ${sellerId}
-            AND o."createdAt" >= ${sixtyDaysAgo}
-            AND o."createdAt" < ${thirtyDaysAgo}
-        `,
-        this.prisma.product.count({ where: { sellerId } }),
-        this.prisma.product.count({ where: { sellerId, createdAt: { gte: thirtyDaysAgo } } }),
-        this.prisma.product.count({
-          where: { sellerId, createdAt: { gte: sixtyDaysAgo, lt: thirtyDaysAgo } },
-        }),
-      ]);
+    const [transactions, totalProducts, currentNewProducts, prevNewProducts, orderStats] = await Promise.all([
+      this.prisma.walletTransaction.findMany({
+        where: { walletId: wallet.id, status: 'COMPLETED' },
+      }),
+      this.prisma.product.count({ where: { sellerId } }),
+      this.prisma.product.count({ where: { sellerId, createdAt: { gte: thirtyDaysAgo } } }),
+      this.prisma.product.count({ where: { sellerId, createdAt: { gte: sixtyDaysAgo, lt: thirtyDaysAgo } } }),
+      this.prisma.$queryRaw<{ orders: string; customers: string; ordersPrev: string; customersPrev: string }[]>`
+        SELECT 
+          COUNT(DISTINCT CASE WHEN o."createdAt" >= ${thirtyDaysAgo} THEN o.id END)::text as orders,
+          COUNT(DISTINCT CASE WHEN o."createdAt" >= ${thirtyDaysAgo} THEN o."userId" END)::text as customers,
+          COUNT(DISTINCT CASE WHEN o."createdAt" >= ${sixtyDaysAgo} AND o."createdAt" < ${thirtyDaysAgo} THEN o.id END)::text as "ordersPrev",
+          COUNT(DISTINCT CASE WHEN o."createdAt" >= ${sixtyDaysAgo} AND o."createdAt" < ${thirtyDaysAgo} THEN o."userId" END)::text as "customersPrev"
+        FROM orders o
+        JOIN order_items oi ON oi."orderId" = o.id
+        JOIN products p ON p.id = oi."productId"
+        WHERE p."sellerId" = ${sellerId}
+      `,
+    ]);
 
-    const all = allTimeRows[0];
-    const cur = currentRows[0];
-    const prev = prevRows[0];
+    const stats = {
+      totalRevenue: 0,
+      netIncome: 0,
+      totalFees: 0,
+      revenue30d: 0,
+      revenuePrev30d: 0,
+    };
 
+    transactions.forEach(t => {
+      const amt = Number(t.amount);
+      const isRecent = t.createdAt >= thirtyDaysAgo;
+      const isPrev = t.createdAt >= sixtyDaysAgo && t.createdAt < thirtyDaysAgo;
+
+      if (t.type === 'SELLER_INCOME') {
+        stats.totalRevenue += amt;
+        stats.netIncome += amt;
+        if (isRecent) stats.revenue30d += amt;
+        if (isPrev) stats.revenuePrev30d += amt;
+      } else if (t.type === 'SELLER_FEE_DEDUCTED') {
+        stats.totalRevenue += amt; // Assuming Gross = Net + Fee
+        stats.totalFees += amt;
+        if (isRecent) stats.revenue30d += amt;
+        if (isPrev) stats.revenuePrev30d += amt;
+      }
+    });
+
+    const o = orderStats[0];
     const calcChange = (current: number, previous: number): number => {
       if (previous === 0) return current > 0 ? 100 : 0;
       return Math.round(((current - previous) / previous) * 1000) / 10;
     };
 
     return {
-      totalRevenue: Math.round(Number(all.revenue)),
-      totalOrders: Number(all.orders),
+      totalRevenue: Math.round(stats.totalRevenue),
+      netIncome: Math.round(stats.netIncome),
+      totalFees: Math.round(stats.totalFees),
+      totalOrders: Number(o.orders),
       totalProducts,
-      totalCustomers: Number(all.customers),
-      revenueChange: calcChange(Number(cur.revenue), Number(prev.revenue)),
-      ordersChange: calcChange(Number(cur.orders), Number(prev.orders)),
+      totalCustomers: Number(o.customers),
+      revenueChange: calcChange(stats.revenue30d, stats.revenuePrev30d),
+      ordersChange: calcChange(Number(o.orders), Number(o.ordersPrev)),
       productsChange: calcChange(currentNewProducts, prevNewProducts),
-      customersChange: calcChange(Number(cur.customers), Number(prev.customers)),
+      customersChange: calcChange(Number(o.customers), Number(o.customersPrev)),
     };
   }
 
