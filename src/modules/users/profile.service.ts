@@ -66,12 +66,41 @@ export class ProfileService {
   }
 
   async deleteAccount(userId: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        wallet: true,
+        orders: {
+          select: { status: true },
+        },
+      },
+    });
+
     if (!user) throw new NotFoundException('User not found');
+
+    // 1. Kiểm tra ví (Wallet balance must be 0)
+    const balance = user.wallet?.balance ? Number(user.wallet.balance) : 0;
+    if (balance > 0) {
+      throw new BadRequestException(
+        `Không thể xoá tài khoản khi ví vẫn còn dư số tiền: ${balance.toLocaleString()}đ. Vui lòng rút hết tiền trước khi xoá.`,
+      );
+    }
+
+    // 2. Kiểm tra đơn hàng (All orders must be in terminal states)
+    const terminalStates = ['DELIVERED', 'CANCELLED', 'REFUNDED'];
+    const activeOrders = user.orders.filter(
+      (order) => !terminalStates.includes(order.status),
+    );
+
+    if (activeOrders.length > 0) {
+      throw new BadRequestException(
+        'Không thể xoá tài khoản khi đang có đơn hàng chưa hoàn tất. Vui lòng hoàn tất hoặc huỷ tất cả đơn hàng trước khi xoá.',
+      );
+    }
 
     await this.prisma.user.delete({ where: { id: userId } });
 
-    return { message: 'Account deleted successfully' };
+    return { message: 'Tài khoản của bạn đã được xoá vĩnh viễn.' };
   }
 
   async updateProfile(userId: string, dto: UpdateProfileDto) {
