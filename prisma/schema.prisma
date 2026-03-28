@@ -900,3 +900,33 @@ model Blog {
   @@index([slug])
   @@map("blogs")
 }
+
+// ============================================================
+// CONTACT & SUPPORT MODELS
+// ============================================================
+
+enum ContactStatus {
+  PENDING   // Mới gửi, chưa xử lý
+  REPLIED   // Đã phản hồi qua email
+  ARCHIVED  // Đã lưu trữ / Đóng
+}
+
+model ContactMessage {
+  id        String        @id @default(cuid())
+  name      String
+  email     String
+  subject   String
+  message   String        @db.Text
+  status    ContactStatus @default(PENDING)
+  
+  // Lưu phản hồi cuối cùng của admin để hiển thị trong dashboard
+  adminReply String?      @db.Text
+  adminReplyAt DateTime?
+  adminReplyBy String?      // ID của admin đã phản hồi
+  adminReplyAttachments String[] @default([])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("contact_messages")
+}
