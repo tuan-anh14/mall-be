@@ -34,11 +34,11 @@ const ORDER_INCLUDE = {
 };
 
 const TRACKING_STEPS = [
-  { status: TrackingStatus.ORDERED, label: 'Order Placed', sortOrder: 0 },
-  { status: TrackingStatus.CONFIRMED, label: 'Confirmed', sortOrder: 1 },
-  { status: TrackingStatus.SHIPPED, label: 'Shipped', sortOrder: 2 },
-  { status: TrackingStatus.OUT_FOR_DELIVERY, label: 'Out for Delivery', sortOrder: 3 },
-  { status: TrackingStatus.DELIVERED, label: 'Delivered', sortOrder: 4 },
+  { status: TrackingStatus.ORDERED, label: 'Đã đặt hàng', sortOrder: 0 },
+  { status: TrackingStatus.CONFIRMED, label: 'Đã xác nhận', sortOrder: 1 },
+  { status: TrackingStatus.SHIPPED, label: 'Đang vận chuyển', sortOrder: 2 },
+  { status: TrackingStatus.OUT_FOR_DELIVERY, label: 'Đang giao hàng', sortOrder: 3 },
+  { status: TrackingStatus.DELIVERED, label: 'Đã giao hàng thành công', sortOrder: 4 },
 ];
 
 const PAID_METHODS = ['wallet', 'vnpay', 'momo'];
