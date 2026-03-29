@@ -81,7 +81,14 @@ export class AuthUserDto {
   userType: 'buyer' | 'seller' | 'admin';
 
   @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
   id?: string;
+
+  @ApiPropertyOptional({ example: 'https://example.com/avatar.jpg' })
+  @IsString()
+  @IsOptional()
+  avatar?: string | null;
 
   @ApiPropertyOptional({ enum: ['PENDING', 'APPROVED', 'REJECTED'] })
   sellerRequestStatus?: 'PENDING' | 'APPROVED' | 'REJECTED' | null;

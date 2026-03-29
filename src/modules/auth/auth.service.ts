@@ -70,6 +70,7 @@ export class AuthService {
       email: user.email,
       name: `${user.firstName} ${user.lastName}`.trim(),
       userType,
+      avatar: user.avatar || null,
       sellerRequestStatus: (sellerRequestStatus as any) ?? null,
     };
   }
