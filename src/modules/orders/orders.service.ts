@@ -52,7 +52,7 @@ export class OrdersService {
     private readonly walletService: WalletService,
     @Inject(forwardRef(() => PaymentService))
     private readonly paymentService: PaymentService,
-  ) {}
+  ) { }
 
   private generateOrderId(): string {
     const year = new Date().getFullYear();
@@ -100,12 +100,12 @@ export class OrdersService {
         productImage: item.productImage,
         product: item.product
           ? {
-              id: item.product.id,
-              name: item.product.name,
-              price: Number(item.product.price),
-              image: item.product.images?.[0]?.url ?? null,
-              status: item.product.status,
-            }
+            id: item.product.id,
+            name: item.product.name,
+            price: Number(item.product.price),
+            image: item.product.images?.[0]?.url ?? null,
+            status: item.product.status,
+          }
           : null,
       })),
       tracking: {
@@ -315,9 +315,13 @@ export class OrdersService {
       couponDiscount = Math.min(couponDiscount, subtotal);
     }
 
-    const shippingCost = 0;
-    const tax = 0;
-    const total = Math.max(0, subtotal - couponDiscount + shippingCost + tax);
+    const FREE_SHIPPING_THRESHOLD = 50000;
+    const DEFAULT_SHIPPING_COST = 50000;
+    const VAT_RATE = 0.1;
+
+    const shippingCost = subtotal >= FREE_SHIPPING_THRESHOLD ? 0 : DEFAULT_SHIPPING_COST;
+    const tax = subtotal * VAT_RATE;
+    const total = Math.round(Math.max(0, subtotal - couponDiscount + shippingCost + tax));
 
     // Generate unique order ID
     let orderId = this.generateOrderId();
@@ -457,7 +461,7 @@ export class OrdersService {
       title: 'Đặt hàng thành công',
       message: `Đơn hàng ${orderId} của bạn đã được đặt thành công. Tổng cộng: ${total.toFixed(0)} ₫.`,
       actionPage: 'orders',
-    }).catch(() => {});
+    }).catch(() => { });
 
     // Notify sellers for their products in the order
     const sellerProductIds = rawItems.map((i) => i.productId);
@@ -476,7 +480,7 @@ export class OrdersService {
         title: 'Bạn có đơn hàng mới',
         message: `Đơn hàng mới ${orderId} vừa được đặt. Hãy kiểm tra và xác nhận đơn hàng.`,
         actionPage: 'dashboard',
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
     return {
@@ -566,7 +570,7 @@ export class OrdersService {
       title: wasWalletPaid ? 'Đơn hàng đã hủy - Đã hoàn tiền' : 'Đơn hàng đã bị hủy',
       message: notifMessage,
       actionPage: 'orders',
-    }).catch(() => {});
+    }).catch(() => { });
 
     return { order: this.formatOrder(updated) };
   }
@@ -606,7 +610,7 @@ export class OrdersService {
         title: 'Thanh toán thành công',
         message: `Đơn hàng ${orderId} đã được thanh toán thành công.`,
         actionPage: 'orders',
-      }).catch(() => {});
+      }).catch(() => { });
 
     } else if (status === WalletTransactionStatus.CANCELLED || status === WalletTransactionStatus.FAILED) {
       await this.cancelOrder(order.userId, orderId);
