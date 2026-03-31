@@ -32,12 +32,17 @@ export class SessionAuthGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const sessionId = request.cookies?.[SESSION_COOKIE] as string | undefined;
 
+    console.log('[GUARD] cookies:', JSON.stringify(request.cookies));
+    console.log('[GUARD] sessionId:', sessionId);
+
     if (!sessionId) {
       throw new UnauthorizedException('Unauthorized');
     }
 
     const session =
       await this.userSessionRepository.findByIdWithUser(sessionId);
+
+    console.log('[GUARD] session found:', session ? `id=${session.id}, isActive=${session.isActive}` : 'NULL');
 
     if (!session || !session.isActive || session.expiresAt < new Date()) {
       throw new UnauthorizedException('Unauthorized');

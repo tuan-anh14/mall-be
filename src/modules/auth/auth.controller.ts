@@ -95,10 +95,10 @@ export class AuthController {
     @Body() dto: LoginDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{ user: AuthUserDto }> {
+  ): Promise<{ user: AuthUserDto; sessionId: string }> {
     const { user, sessionId } = await this.authService.login(dto, req);
     res.cookie(SESSION_COOKIE, sessionId, this.cookieOptions);
-    return { user };
+    return { user, sessionId };
   }
 
   @Get('me')
