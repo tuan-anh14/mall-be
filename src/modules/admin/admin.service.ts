@@ -244,6 +244,7 @@ export class AdminService {
           name: dto.name,
           slug: dto.slug,
           icon: dto.icon,
+          image: dto.image,
           sortOrder: dto.sortOrder ?? 0,
         },
       });

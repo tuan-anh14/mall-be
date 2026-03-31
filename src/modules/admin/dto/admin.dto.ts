@@ -55,6 +55,11 @@ export class CreateCategoryDto {
   @IsOptional()
   icon?: string;
 
+  @ApiPropertyOptional({ example: 'https://res.cloudinary.com/...' })
+  @IsString()
+  @IsOptional()
+  image?: string;
+
   @ApiPropertyOptional({ example: 0 })
   @IsNumber()
   @IsOptional()
@@ -77,6 +82,11 @@ export class UpdateCategoryDto {
   @IsString()
   @IsOptional()
   icon?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  image?: string;
 
   @ApiPropertyOptional()
   @IsNumber()

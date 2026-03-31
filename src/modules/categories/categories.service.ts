@@ -12,6 +12,7 @@ export class CategoriesService {
         name: true,
         slug: true,
         icon: true,
+        image: true,
         _count: { select: { products: true } },
       },
       orderBy: { sortOrder: 'asc' },
@@ -23,7 +24,9 @@ export class CategoriesService {
         name: cat.name,
         slug: cat.slug,
         icon: cat.icon,
+        image: cat.image,
         productCount: cat._count.products,
+        _count: cat._count, // Keep for frontend compatibility
       })),
     };
   }

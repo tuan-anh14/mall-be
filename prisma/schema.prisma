@@ -242,6 +242,7 @@ model Category {
   name      String    @unique              // "Electronics", "Fashion", "Home & Garden"
   slug      String    @unique              // "electronics", "fashion"
   icon      String?                        // Lucide icon name: "Laptop", "Shirt"
+  image     String?                        // Cloudinary image URL
   sortOrder Int       @default(0)
   createdAt DateTime  @default(now())
 
