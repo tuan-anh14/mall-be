@@ -642,4 +642,71 @@ export class AdminService {
       };
     });
   }
+
+  // ─── PRODUCTS ─────────────────────────────────────────────────────────────
+
+  async getProducts(
+    page = 1,
+    limit = 20,
+    search?: string,
+    categoryId?: string,
+    sellerId?: string,
+    status?: string,
+  ) {
+    const skip = (page - 1) * limit;
+    const where: any = {};
+
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { sku: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+    if (categoryId && categoryId !== 'all') where.categoryId = categoryId;
+    if (sellerId && sellerId !== 'all') {
+      where.seller = { userId: sellerId };
+    }
+    if (status && status !== 'all' && Object.values(ProductStatus).includes(status as any)) {
+      where.status = status as ProductStatus;
+    }
+
+    const [products, total] = await Promise.all([
+      this.prisma.product.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          category: { select: { id: true, name: true } },
+          seller: { select: { id: true, storeName: true, storeSlug: true, userId: true } },
+          images: { where: { isPrimary: true }, take: 1 },
+        },
+      }),
+      this.prisma.product.count({ where }),
+    ]);
+
+    return { products, total, page, limit };
+  }
+
+  async deleteProduct(id: string) {
+    const product = await this.prisma.product.findUnique({
+      where: { id },
+      select: { id: true, name: true },
+    });
+    if (!product) throw new NotFoundException('Sản phẩm không tồn tại');
+
+    try {
+      await this.prisma.product.delete({ where: { id } });
+    } catch (e: any) {
+      // P2003 is Prisma's foreign key constraint error code
+      if (e?.code === 'P2003') {
+        throw new BadRequestException(
+          'Không thể xóa sản phẩm này vì đã có dữ liệu liên quan (đơn hàng, đánh giá, v.v.). Vui lòng chuyển trạng thái sang "ẨN" thay vì xóa.',
+        );
+      }
+      throw e;
+    }
+
+    return { message: `Đã xóa sản phẩm: ${product.name}` };
+  }
 }

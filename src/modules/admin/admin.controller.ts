@@ -238,4 +238,35 @@ export class AdminController {
   getSalesData() {
     return this.adminService.getSalesData();
   }
+
+  // ─── PRODUCTS ─────────────────────────────────────────────────────────────
+
+  @Get('products')
+  @ApiOperation({ summary: 'List and filter all products' })
+  getProducts(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+    @Query('categoryId') categoryId?: string,
+    @Query('sellerId') sellerId?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.adminService.getProducts(
+      page ? parseInt(page) : 1,
+      limit ? parseInt(limit) : 20,
+      search,
+      categoryId,
+      sellerId,
+      status,
+    );
+  }
+
+  @Delete('products/:id')
+  @ApiOperation({ summary: 'Delete a product (Admin)' })
+  async deleteProduct(@Req() req: Request, @Param('id') id: string) {
+    const admin = req.user as User;
+    const result = await this.adminService.deleteProduct(id);
+    await this.adminService.logAction(admin.id, 'DELETE', 'product', id);
+    return result;
+  }
 }
