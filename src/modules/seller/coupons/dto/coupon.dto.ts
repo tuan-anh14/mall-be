@@ -58,6 +58,11 @@ export class CreateSellerCouponDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
+
+  @ApiPropertyOptional({ example: true })
+  @IsBoolean()
+  @IsOptional()
+  isVisible?: boolean;
 }
 
 export class UpdateSellerCouponDto {
@@ -109,4 +114,9 @@ export class UpdateSellerCouponDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
+
+  @ApiPropertyOptional()
+  @IsBoolean()
+  @IsOptional()
+  isVisible?: boolean;
 }

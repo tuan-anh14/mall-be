@@ -131,6 +131,7 @@ export class SellerCouponsService {
         validFrom: new Date(dto.validFrom),
         validUntil: dto.validUntil ? new Date(dto.validUntil) : null,
         isActive: dto.isActive ?? true,
+        isVisible: dto.isVisible ?? true,
         sellerId: profile.id,
       },
     });
@@ -191,6 +192,7 @@ export class SellerCouponsService {
           validUntil: dto.validUntil ? new Date(dto.validUntil) : null,
         }),
         ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+        ...(dto.isVisible !== undefined && { isVisible: dto.isVisible }),
       },
     });
   }

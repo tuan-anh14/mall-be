@@ -318,6 +318,7 @@ export class AdminService {
           validFrom: new Date(dto.validFrom),
           validUntil: dto.validUntil ? new Date(dto.validUntil) : null,
           isActive: dto.isActive ?? true,
+          isVisible: dto.isVisible ?? true,
         },
       });
     } catch (e: any) {
@@ -376,6 +377,8 @@ export class AdminService {
           code: dto.code?.toUpperCase(),
           validFrom: dto.validFrom ? new Date(dto.validFrom) : undefined,
           validUntil: dto.validUntil ? new Date(dto.validUntil) : undefined,
+          isActive: dto.isActive !== undefined ? dto.isActive : undefined,
+          isVisible: dto.isVisible !== undefined ? dto.isVisible : undefined,
         },
       });
     } catch (e: any) {

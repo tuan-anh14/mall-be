@@ -462,6 +462,7 @@ model Coupon {
   validFrom      DateTime
   validUntil     DateTime?
   isActive       Boolean    @default(true)
+  isVisible      Boolean    @default(true)
 
   // NULL = global (admin-managed, apply to all); set = seller-specific
   sellerId       String?

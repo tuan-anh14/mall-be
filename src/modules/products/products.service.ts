@@ -32,6 +32,7 @@ export class ProductsService {
       where: {
         sellerId,
         isActive: true,
+        isVisible: true,
         validFrom: { lte: now },
         OR: [{ validUntil: null }, { validUntil: { gte: now } }],
       },
@@ -346,6 +347,7 @@ export class ProductsService {
       where: {
         sellerId: null,
         isActive: true,
+        isVisible: true,
         validFrom: { lte: now },
         OR: [{ validUntil: null }, { validUntil: { gte: now } }],
       },

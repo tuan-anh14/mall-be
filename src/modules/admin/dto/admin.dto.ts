@@ -152,6 +152,11 @@ export class CreateCouponDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
+
+  @ApiPropertyOptional({ example: true })
+  @IsBoolean()
+  @IsOptional()
+  isVisible?: boolean;
 }
 
 export class UpdateCouponDto {
@@ -213,6 +218,11 @@ export class UpdateCouponDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
+
+  @ApiPropertyOptional()
+  @IsBoolean()
+  @IsOptional()
+  isVisible?: boolean;
 }
 
 export class ReviewSellerRequestDto {
