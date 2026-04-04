@@ -225,3 +225,20 @@ export class ReviewSellerRequestDto {
   @IsOptional()
   adminNote?: string;
 }
+
+export class UpdateAdminProductDto {
+  @ApiPropertyOptional({ example: true })
+  @IsBoolean()
+  @IsOptional()
+  featured?: boolean;
+
+  @ApiPropertyOptional({ example: true })
+  @IsBoolean()
+  @IsOptional()
+  trending?: boolean;
+
+  @ApiPropertyOptional({ enum: ['ACTIVE', 'INACTIVE', 'OUT_OF_STOCK', 'DRAFT'] })
+  @IsEnum(['ACTIVE', 'INACTIVE', 'OUT_OF_STOCK', 'DRAFT'])
+  @IsOptional()
+  status?: 'ACTIVE' | 'INACTIVE' | 'OUT_OF_STOCK' | 'DRAFT';
+}

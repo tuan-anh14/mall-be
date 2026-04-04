@@ -11,6 +11,7 @@ import {
   HttpCode,
   HttpStatus,
   Req,
+  Patch,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { Request } from 'express';
@@ -24,6 +25,7 @@ import {
   CreateCouponDto,
   UpdateCouponDto,
   ReviewSellerRequestDto,
+  UpdateAdminProductDto,
 } from './dto/admin.dto';
 
 @ApiTags('Admin')
@@ -259,6 +261,19 @@ export class AdminController {
       sellerId,
       status,
     );
+  }
+
+  @Patch('products/:id')
+  @ApiOperation({ summary: 'Update a product (Admin)' })
+  async updateProduct(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() dto: UpdateAdminProductDto,
+  ) {
+    const admin = req.user as User;
+    const result = await this.adminService.updateProduct(id, dto);
+    await this.adminService.logAction(admin.id, 'UPDATE', 'product', id, dto);
+    return result;
   }
 
   @Delete('products/:id')

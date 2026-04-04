@@ -185,7 +185,7 @@ export class ProductsService {
     if (featured !== undefined) where.featured = featured;
     if (trending !== undefined) where.trending = trending;
 
-    const [products, total, maxPriceAggregate] = await Promise.all([
+    const [products, total, maxPriceAggregate, allBrands] = await Promise.all([
       this.prisma.product.findMany({
         where,
         include: PRODUCT_INCLUDE,
@@ -201,10 +201,19 @@ export class ProductsService {
         },
         _max: { price: true },
       }),
+      this.prisma.product.findMany({
+        where: {
+          ...where,
+          brand: undefined, // Important: get ALL brands for this category/search
+        },
+        select: { brand: true },
+        distinct: ['brand'],
+      }),
     ]);
 
     const totalPages = Math.ceil(total / limit);
     const maxProductPrice = Number(maxPriceAggregate._max.price ?? 3000);
+    const brands = allBrands.map((b) => b.brand).filter(Boolean) as string[];
 
     return {
       products: products.map((p) => this.formatProduct(p)),
@@ -213,6 +222,7 @@ export class ProductsService {
       limit,
       totalPages,
       maxPrice: maxProductPrice,
+      brands,
     };
   }
 

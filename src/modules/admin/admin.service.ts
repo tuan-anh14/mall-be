@@ -14,6 +14,7 @@ import {
   CreateCouponDto,
   UpdateCouponDto,
   ReviewSellerRequestDto,
+  UpdateAdminProductDto,
 } from './dto/admin.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -686,6 +687,24 @@ export class AdminService {
     ]);
 
     return { products, total, page, limit };
+  }
+
+  async updateProduct(id: string, dto: UpdateAdminProductDto) {
+    const product = await this.prisma.product.findUnique({
+      where: { id },
+      select: { id: true, name: true },
+    });
+    if (!product) throw new NotFoundException('Sản phẩm không tồn tại');
+
+    try {
+      return await this.prisma.product.update({
+        where: { id },
+        data: dto,
+      });
+    } catch (e: any) {
+      if (e?.code === 'P2025') throw new NotFoundException('Sản phẩm không tồn tại');
+      throw e;
+    }
   }
 
   async deleteProduct(id: string) {
