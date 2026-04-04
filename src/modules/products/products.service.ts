@@ -26,6 +26,37 @@ const PRODUCT_INCLUDE = {
 export class ProductsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private async getSellerCoupons(sellerId: string) {
+    const now = new Date();
+    const coupons = await this.prisma.coupon.findMany({
+      where: {
+        sellerId,
+        isActive: true,
+        validFrom: { lte: now },
+        OR: [{ validUntil: null }, { validUntil: { gte: now } }],
+      },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        description: true,
+        type: true,
+        value: true,
+        minOrderAmount: true,
+        maxDiscount: true,
+        validUntil: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return coupons.map((c) => ({
+      ...c,
+      value: Number(c.value),
+      minOrderAmount: c.minOrderAmount ? Number(c.minOrderAmount) : null,
+      maxDiscount: c.maxDiscount ? Number(c.maxDiscount) : null,
+    }));
+  }
+
+
   private formatProduct(product: any) {
     return {
       id: product.id,
@@ -234,7 +265,12 @@ export class ProductsService {
 
     if (!product) throw new NotFoundException('Product not found');
 
-    return { product: this.formatProduct(product) };
+    const coupons = await this.getSellerCoupons(product.sellerId);
+
+    return {
+      product: this.formatProduct(product),
+      coupons,
+    };
   }
 
   async findRelated(id: string) {
@@ -300,6 +336,7 @@ export class ProductsService {
         totalProducts,
       },
       products: products.map((p) => this.formatProduct(p)),
+      coupons: await this.getSellerCoupons(sellerProfile.id),
     };
   }
 
