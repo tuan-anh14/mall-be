@@ -75,6 +75,7 @@ enum NotificationType {
   WISHLIST    // Giảm giá sản phẩm trong wishlist
   PROMOTION   // Tin tức, sản phẩm mới
   SYSTEM      // Thông báo hệ thống
+  MESSAGE     // Tin nhắn mới từ chat
 }
 
 enum MessageStatus {

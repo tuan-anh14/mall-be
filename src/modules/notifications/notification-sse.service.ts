@@ -14,6 +14,7 @@ export class NotificationSseService {
 
   /** Push a real-time event to a specific user */
   push(event: SseEvent) {
+    console.log(`[SSE] Pushing event to user ${event.userId}:`, event.type, event.data);
     this.events$.next(event);
   }
 
@@ -23,7 +24,7 @@ export class NotificationSseService {
       filter((e) => e.userId === userId),
       map((e) => ({
         data: JSON.stringify({ type: e.type, ...e.data }),
-      } as MessageEvent)),
+      } as any)),
     );
   }
 }

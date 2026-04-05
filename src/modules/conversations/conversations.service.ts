@@ -5,14 +5,18 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '@/database/prisma.service';
-import { MessageStatus } from 'generated/prisma/client';
+import { MessageStatus, NotificationType } from 'generated/prisma/client';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { PaginationDto } from '@/common/dto/pagination.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class ConversationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   private formatConversation(conv: any, userId: string) {
     const isBuyer = conv.buyerId === userId;
@@ -191,6 +195,20 @@ export class ConversationsService {
       });
     }
 
+    // Mark related MESSAGE notifications as read for current user
+    await this.prisma.notification.updateMany({
+      where: {
+        userId,
+        type: 'MESSAGE' as NotificationType,
+        isRead: false,
+        actionData: {
+          path: ['conversationId'],
+          equals: conversationId,
+        },
+      },
+      data: { isRead: true },
+    });
+
     const totalPages = Math.ceil(total / limit);
 
     return {
@@ -218,6 +236,10 @@ export class ConversationsService {
   async sendMessage(userId: string, conversationId: string, dto: SendMessageDto) {
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
+      include: {
+        buyer: { select: { id: true, firstName: true, lastName: true } },
+        seller: { select: { id: true, firstName: true, lastName: true } },
+      },
     });
 
     if (!conversation) throw new NotFoundException('Conversation not found');
@@ -227,6 +249,10 @@ export class ConversationsService {
     }
 
     const isBuyer = conversation.buyerId === userId;
+    const recipientId = isBuyer ? conversation.sellerId : conversation.buyerId;
+    const senderName = isBuyer 
+      ? `${conversation.buyer.firstName} ${conversation.buyer.lastName}`
+      : `${conversation.seller.firstName} ${conversation.seller.lastName}`;
 
     const message = await this.prisma.message.create({
       data: {
@@ -252,6 +278,18 @@ export class ConversationsService {
           ? { sellerUnreadCount: { increment: 1 } }
           : { buyerUnreadCount: { increment: 1 } }),
       },
+    });
+
+    // Create notification for the recipient
+    const truncatedText = dto.text.length > 60 ? dto.text.substring(0, 60) + '...' : dto.text;
+    
+    await this.notificationsService.createNotification({
+      userId: recipientId,
+      type: 'MESSAGE' as NotificationType,
+      title: `Tin nhắn mới từ ${senderName}`,
+      message: truncatedText || 'Đã gửi một tệp đính kèm',
+      actionPage: 'chat',
+      actionData: { conversationId },
     });
 
     return {

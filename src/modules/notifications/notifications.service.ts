@@ -9,7 +9,7 @@ export class NotificationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sse: NotificationSseService,
-  ) {}
+  ) { }
 
   async createNotification(params: {
     userId: string;
@@ -46,7 +46,7 @@ export class NotificationsService {
     if (type) where.type = type as NotificationType;
     if (isRead !== undefined) where.isRead = isRead;
 
-    const [notifications, total, unreadCount] = await Promise.all([
+    const [notifications, total, unreadCount, unreadMessageCount] = await Promise.all([
       this.prisma.notification.findMany({
         where,
         orderBy: { createdAt: 'desc' },
@@ -55,10 +55,12 @@ export class NotificationsService {
       }),
       this.prisma.notification.count({ where }),
       this.prisma.notification.count({ where: { userId, isRead: false } }),
+      this.prisma.notification.count({ where: { userId, type: NotificationType.MESSAGE, isRead: false } }),
     ]);
 
     const totalPages = Math.ceil(total / limit);
 
+    console.log(`[API] getNotifications for user ${userId}: unreadCount=${unreadCount}, unreadMessageCount=${unreadMessageCount}`);
     return {
       notifications,
       total,
@@ -66,6 +68,7 @@ export class NotificationsService {
       limit,
       totalPages,
       unreadCount,
+      unreadMessageCount,
     };
   }
 
