@@ -82,8 +82,10 @@ export class CartService {
     });
 
     if (!product) throw new NotFoundException('Product not found or unavailable');
-    if (product.stock < dto.quantity) {
-      throw new BadRequestException(`Only ${product.stock} items in stock`);
+    console.log(`[CartService.addItem] Product stock: ${product.stock}, Requested: ${dto.quantity}`);
+    
+    if (Number(product.stock) < Number(dto.quantity)) {
+      throw new BadRequestException(`Sản phẩm này chỉ còn ${product.stock} sản phẩm trong kho`);
     }
 
     // Check if same combination already exists in cart
@@ -97,20 +99,25 @@ export class CartService {
     });
 
     if (existing) {
-      const newQty = existing.quantity + dto.quantity;
-      if (newQty > product.stock) {
-        throw new BadRequestException(`Only ${product.stock} items in stock`);
+      const newQty = Number(existing.quantity) + Number(dto.quantity);
+      console.log(`[CartService.addItem] Existing qty: ${existing.quantity}, New total: ${newQty}`);
+      
+      if (newQty > Number(product.stock)) {
+        throw new BadRequestException(
+          `Bạn đã có ${existing.quantity} sản phẩm này trong giỏ hàng. Tổng cộng không thể vượt quá ${product.stock} (tồn kho).`
+        );
       }
       await this.prisma.cartItem.update({
         where: { id: existing.id },
         data: { quantity: newQty },
       });
     } else {
+      console.log(`[CartService.addItem] Creating new cart item with qty: ${dto.quantity}`);
       await this.prisma.cartItem.create({
         data: {
           userId,
           productId: dto.productId,
-          quantity: dto.quantity,
+          quantity: Number(dto.quantity),
           selectedColor: dto.color ?? null,
           selectedSize: dto.size ?? null,
         },
