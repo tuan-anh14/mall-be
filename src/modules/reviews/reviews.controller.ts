@@ -37,10 +37,11 @@ export class ReviewsController {
   @ApiParam({ name: 'productId', type: String })
   @ApiResponse({ status: 200, description: 'Product reviews' })
   getProductReviews(
+    @CurrentUser('id') userId: string,
     @Param('productId') productId: string,
     @Query() query: PaginationDto,
   ) {
-    return this.reviewsService.getProductReviews(productId, query);
+    return this.reviewsService.getProductReviews(productId, query, userId);
   }
 
   @Get('products/:productId/check')

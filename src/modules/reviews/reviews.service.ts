@@ -14,7 +14,11 @@ import { PaginationDto } from '@/common/dto/pagination.dto';
 export class ReviewsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private formatReview(review: any) {
+  private formatReview(review: any, currentUserId?: string) {
+    const hasVoted = currentUserId 
+      ? (review.helpfulVotes || []).some((v: any) => v.userId === currentUserId)
+      : false;
+
     return {
       id: review.id,
       productId: review.productId,
@@ -23,6 +27,7 @@ export class ReviewsService {
       images: review.images ?? [],
       emoji: review.emoji ?? null,
       helpful: review.helpful,
+      hasVoted,
       user: review.user
         ? {
             id: review.user.id,
@@ -48,7 +53,7 @@ export class ReviewsService {
     };
   }
 
-  async getProductReviews(productId: string, query: PaginationDto) {
+  async getProductReviews(productId: string, query: PaginationDto, userId?: string) {
     const { page, limit } = query;
     const skip = (page - 1) * limit;
 
@@ -63,6 +68,7 @@ export class ReviewsService {
         where: { productId },
         include: {
           user: { select: { id: true, firstName: true, lastName: true, avatar: true } },
+          helpfulVotes: userId ? { where: { userId } } : false,
           replies: {
             include: {
               user: {
@@ -94,7 +100,7 @@ export class ReviewsService {
     const totalPages = Math.ceil(total / limit);
 
     return {
-      reviews: reviews.map((r) => this.formatReview(r)),
+      reviews: reviews.map((r) => this.formatReview(r, userId)),
       total,
       page,
       limit,
@@ -148,7 +154,7 @@ export class ReviewsService {
 
     await this.updateProductRating(dto.productId);
 
-    return { review: this.formatReview(review) };
+    return { review: this.formatReview(review, userId) };
   }
 
   async updateReview(userId: string, reviewId: string, dto: UpdateReviewDto) {
@@ -171,7 +177,7 @@ export class ReviewsService {
 
     await this.updateProductRating(review.productId);
 
-    return { review: this.formatReview(updated) };
+    return { review: this.formatReview(updated, userId) };
   }
 
   async deleteReview(userId: string, reviewId: string) {
@@ -201,7 +207,7 @@ export class ReviewsService {
         }))
       : false;
 
-    return { review: review ? this.formatReview(review) : null, canReview };
+    return { review: review ? this.formatReview(review, userId) : null, canReview };
   }
 
   private async updateProductRating(productId: string) {
@@ -266,18 +272,31 @@ export class ReviewsService {
     const existing = await this.prisma.reviewHelpful.findUnique({
       where: { reviewId_userId: { reviewId, userId } },
     });
-    if (existing) throw new BadRequestException('You have already voted for this review');
 
-    await this.prisma.$transaction([
-      this.prisma.reviewHelpful.create({
-        data: { reviewId, userId },
-      }),
-      this.prisma.review.update({
-        where: { id: reviewId },
-        data: { helpful: { increment: 1 } },
-      }),
-    ]);
-
-    return { success: true };
+    if (existing) {
+      // Toggle OFF: Remove vote
+      await this.prisma.$transaction([
+        this.prisma.reviewHelpful.delete({
+          where: { id: existing.id },
+        }),
+        this.prisma.review.update({
+          where: { id: reviewId },
+          data: { helpful: { decrement: 1 } },
+        }),
+      ]);
+      return { success: true, voted: false };
+    } else {
+      // Toggle ON: Add vote
+      await this.prisma.$transaction([
+        this.prisma.reviewHelpful.create({
+          data: { reviewId, userId },
+        }),
+        this.prisma.review.update({
+          where: { id: reviewId },
+          data: { helpful: { increment: 1 } },
+        }),
+      ]);
+      return { success: true, voted: true };
+    }
   }
 }
