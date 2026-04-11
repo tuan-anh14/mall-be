@@ -1,10 +1,14 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ConflictException,
   BadRequestException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
+import { HttpService } from '@nestjs/axios';
+import { ConfigService } from '@nestjs/config';
+import { firstValueFrom } from 'rxjs';
 import { PrismaService } from '@/database/prisma.service';
 import { NotificationType, ProductStatus, UserType } from 'generated/prisma/client';
 import {
@@ -22,9 +26,13 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 
 @Injectable()
 export class AdminService {
+  private readonly logger = new Logger(AdminService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
+    private readonly httpService: HttpService,
+    private readonly configService: ConfigService,
   ) {}
 
   private validateCouponPayload(dto: {
@@ -730,5 +738,23 @@ export class AdminService {
     }
 
     return { message: `Đã xóa sản phẩm: ${product.name}` };
+  }
+
+  async retrainModerationModel(): Promise<{ success: boolean; message: string }> {
+    const aiUrl =
+      this.configService.get<string>('AI_SERVICE_URL') || 'http://localhost:8001';
+    try {
+      const response = await firstValueFrom(
+        this.httpService.post<{ success: boolean; message: string }>(
+          `${aiUrl}/moderate/retrain`,
+          {},
+          { timeout: 60_000 },
+        ),
+      );
+      return response.data;
+    } catch (err: any) {
+      this.logger.error('Failed to retrain moderation model: %s', err?.message);
+      return { success: false, message: err?.message || 'AI service unavailable' };
+    }
   }
 }

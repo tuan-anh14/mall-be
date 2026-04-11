@@ -284,4 +284,16 @@ export class AdminController {
     await this.adminService.logAction(admin.id, 'DELETE', 'product', id);
     return result;
   }
+
+  // ─── MODERATION ────────────────────────────────────────────────────────────
+
+  @Post('moderation/retrain')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Retrain AI moderation model with seed + new data' })
+  async retrainModerationModel(@Req() req: Request) {
+    const admin = req.user as User;
+    const result = await this.adminService.retrainModerationModel();
+    await this.adminService.logAction(admin.id, 'RETRAIN', 'moderation_model', 'model');
+    return result;
+  }
 }

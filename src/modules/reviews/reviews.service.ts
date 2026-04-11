@@ -9,10 +9,14 @@ import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
 import { CreateReplyDto } from './dto/create-reply.dto';
 import { PaginationDto } from '@/common/dto/pagination.dto';
+import { ContentModerationService } from './content-moderation.service';
 
 @Injectable()
 export class ReviewsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly moderationService: ContentModerationService,
+  ) {}
 
   private formatReview(review: any, currentUserId?: string) {
     const hasVoted = currentUserId 
@@ -138,6 +142,15 @@ export class ReviewsService {
     });
     if (existing) throw new BadRequestException('You have already reviewed this product');
 
+    if (dto.comment) {
+      const modResult = await this.moderationService.moderate(dto.comment);
+      if (!modResult.allowed) {
+        throw new BadRequestException(
+          `Bình luận vi phạm tiêu chuẩn cộng đồng: ${modResult.label}`,
+        );
+      }
+    }
+
     const review = await this.prisma.review.create({
       data: {
         productId: dto.productId,
@@ -161,6 +174,15 @@ export class ReviewsService {
     const review = await this.prisma.review.findUnique({ where: { id: reviewId } });
     if (!review) throw new NotFoundException('Review not found');
     if (review.userId !== userId) throw new ForbiddenException('Not your review');
+
+    if (dto.comment) {
+      const modResult = await this.moderationService.moderate(dto.comment);
+      if (!modResult.allowed) {
+        throw new BadRequestException(
+          `Bình luận vi phạm tiêu chuẩn cộng đồng: ${modResult.label}`,
+        );
+      }
+    }
 
     const updated = await this.prisma.review.update({
       where: { id: reviewId },
@@ -237,6 +259,13 @@ export class ReviewsService {
     if (!user) throw new NotFoundException('User not found');
 
     // Mọi người dùng đã đăng nhập đều có thể phản hồi đánh giá công khai
+
+    const modResult = await this.moderationService.moderate(dto.comment);
+    if (!modResult.allowed) {
+      throw new BadRequestException(
+        `Phản hồi vi phạm tiêu chuẩn cộng đồng: ${modResult.label}`,
+      );
+    }
 
     const reply = await this.prisma.reviewReply.create({
       data: {
