@@ -38,6 +38,8 @@ enum OrderStatus {
   DELIVERED         // Đã giao thành công
   CANCELLED         // Đã hủy
   REFUNDED          // Đã hoàn tiền
+  RETURN_REQUESTED  // Người mua yêu cầu đổi trả
+  RETURNED          // Đã trả hàng thành công
 }
 
 enum PaymentMethodType {
@@ -60,6 +62,7 @@ enum WalletTransactionType {
   WITHDRAW            // Rút tiền khỏi ví
   SELLER_INCOME       // Doanh thu bán hàng (Net)
   SELLER_FEE_DEDUCTED // Phí sàn khấu trừ (5%)
+  SELLER_REFUND_DEDUCTED // Khấu trừ hoàn tiền từ ví seller
 }
 
 enum WalletTransactionStatus {
@@ -143,6 +146,7 @@ model User {
 
   notifications     Notification[]
   couponUsages      CouponUsage[]
+  returnRequests    ReturnRequest[]
 
   buyerConversations  Conversation[] @relation("BuyerConversations")
   sellerConversations Conversation[] @relation("SellerConversations")
@@ -542,6 +546,7 @@ model Order {
   items         OrderItem[]
   trackingSteps OrderTracking[]
   couponUsage   CouponUsage?
+  returnRequest ReturnRequest?
 
   @@index([userId])
   @@index([status])
@@ -935,4 +940,33 @@ model ContactMessage {
   updatedAt DateTime @updatedAt
 
   @@map("contact_messages")
+}
+
+// ============================================================
+// RETURN / REFUND MODELS
+// ============================================================
+
+enum ReturnRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+model ReturnRequest {
+  id           String              @id @default(cuid())
+  orderId      String              @unique
+  userId       String              // Buyer ID who requested the return
+  reason       String
+  images       String[]            // Collection of evidence image URLs
+  status       ReturnRequestStatus @default(PENDING)
+  refundAmount Decimal?            @db.Decimal(10, 2)
+  sellerNote   String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  order        Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("return_requests")
 }

@@ -24,6 +24,7 @@ import { RecommendationsModule } from './modules/recommendations/recommendations
 import { BlogsModule } from './modules/blogs/blogs.module';
 import { ContactModule } from './modules/contact/contact.module';
 import { AiChatModule } from './modules/ai-chat/ai-chat.module';
+import { ReturnRequestsModule } from './modules/return-requests/return-requests.module';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { SessionAuthGuard } from './common/guards/session-auth.guard';
@@ -66,6 +67,7 @@ import { AppService } from './app.service';
     BlogsModule,
     ContactModule,
     AiChatModule,
+    ReturnRequestsModule,
   ],
   controllers: [AppController],
   providers: [

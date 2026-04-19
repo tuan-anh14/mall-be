@@ -28,6 +28,8 @@ const STATUS_DISPLAY_MAP: Record<OrderStatus, string> = {
   [OrderStatus.DELIVERED]: 'Delivered',
   [OrderStatus.CANCELLED]: 'Cancelled',
   [OrderStatus.REFUNDED]: 'Refunded',
+  [OrderStatus.RETURN_REQUESTED]: 'Return Requested',
+  [OrderStatus.RETURNED]: 'Returned',
 };
 
 const STATUS_UPDATE_MAP: Record<string, OrderStatus> = {
@@ -99,6 +101,7 @@ export class OrdersService {
         productImage: item.productImage,
       })),
       createdAt: order.createdAt,
+      returnRequest: order.returnRequest,
     };
   }
 
@@ -130,6 +133,7 @@ export class OrdersService {
           items: {
             where: { product: { sellerId } },
           },
+          returnRequest: true,
         },
         orderBy: { createdAt: 'desc' },
       }),
@@ -153,6 +157,11 @@ export class OrdersService {
         .length,
       delivered: allOrders.filter((o) => o.status === OrderStatus.DELIVERED)
         .length,
+      returns: allOrders.filter(
+        (o) =>
+          o.status === OrderStatus.RETURN_REQUESTED ||
+          o.status === OrderStatus.RETURNED,
+      ).length,
     };
 
     return {

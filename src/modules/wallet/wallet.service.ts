@@ -27,7 +27,7 @@ export class WalletService {
     private readonly prisma: PrismaService,
     @Inject(forwardRef(() => PaymentService))
     private readonly paymentService: PaymentService,
-  ) {}
+  ) { }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -250,30 +250,71 @@ export class WalletService {
   // ─── Internal: Refund to Wallet ─────────────────────────────────────────────
 
   async refundToWallet(userId: string, orderId: string, amount: number) {
-    const wallet = await this.getOrCreateWallet(userId);
-    const balance = Number(wallet.balance);
-    const newBalance = balance + amount;
+    const buyerWallet = await this.getOrCreateWallet(userId);
+    const buyerBalance = Number(buyerWallet.balance);
+    const buyerNewBalance = buyerBalance + amount;
 
-    await this.prisma.$transaction([
-      this.prisma.wallet.update({
+    const incomeTransactions = await this.prisma.walletTransaction.findMany({
+      where: {
+        orderId,
+        type: WalletTransactionType.SELLER_INCOME,
+      },
+      include: { wallet: true },
+    });
+
+    const totalIncome = incomeTransactions.reduce((acc, t) => acc + Number(t.amount), 0);
+
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Credit Buyer
+      await tx.wallet.update({
         where: { userId },
-        data: { balance: newBalance },
-      }),
-      this.prisma.walletTransaction.create({
+        data: { balance: buyerNewBalance },
+      });
+
+      await tx.walletTransaction.create({
         data: {
-          walletId: wallet.id,
+          walletId: buyerWallet.id,
           type: WalletTransactionType.REFUND,
           status: WalletTransactionStatus.COMPLETED,
           amount,
-          balanceBefore: balance,
-          balanceAfter: newBalance,
+          balanceBefore: buyerBalance,
+          balanceAfter: buyerNewBalance,
           orderId,
           description: `Hoàn tiền đơn hàng ${orderId}`,
         },
-      }),
-    ]);
+      });
 
-    return newBalance;
+      // 2. Debit Seller(s)
+      for (const incomeTx of incomeTransactions) {
+        const sellerWallet = incomeTx.wallet;
+        const sellerBalance = Number(sellerWallet.balance);
+
+        // Deduct proportional amount if sharing, or full if single
+        const sellerShare = totalIncome > 0 ? (Number(incomeTx.amount) / totalIncome) : 1;
+        const deductionAmount = amount * sellerShare;
+        const sellerNewBalance = sellerBalance - deductionAmount;
+
+        await tx.wallet.update({
+          where: { id: sellerWallet.id },
+          data: { balance: sellerNewBalance },
+        });
+
+        await tx.walletTransaction.create({
+          data: {
+            walletId: sellerWallet.id,
+            type: WalletTransactionType.SELLER_REFUND_DEDUCTED,
+            status: WalletTransactionStatus.COMPLETED,
+            amount: deductionAmount,
+            balanceBefore: sellerBalance,
+            balanceAfter: sellerNewBalance,
+            orderId,
+            description: `Khấu trừ tiền chuyển hoàn đơn hàng ${orderId}`,
+          },
+        });
+      }
+
+      return buyerNewBalance;
+    });
   }
 
   // ─── Admin: List Wallets ────────────────────────────────────────────────────
@@ -518,7 +559,7 @@ export class WalletService {
     });
 
     if (!order) throw new Error(`Order ${orderId} not found for payout`);
-    
+
     // 2. Check if payout already processed (Idempotency)
     const existingPayout = await this.prisma.walletTransaction.findFirst({
       where: {
@@ -534,11 +575,11 @@ export class WalletService {
 
     // 3. Group by seller
     const sellerMap = new Map<string, { userId: string; gross: number }>();
-    
+
     for (const item of order.items) {
       const seller = item.product.seller;
       if (!seller) continue;
-      
+
       const itemTotal = Number(item.price) * item.quantity;
       const current = sellerMap.get(seller.id) || { userId: seller.userId, gross: 0 };
       current.gross += itemTotal;
@@ -553,7 +594,7 @@ export class WalletService {
           // Create wallet if not exists
           await tx.wallet.create({ data: { userId: data.userId, balance: 0 } });
         }
-        
+
         const currentWallet = await tx.wallet.findUniqueOrThrow({ where: { userId: data.userId } });
         const balanceBefore = Number(currentWallet.balance);
 
@@ -609,7 +650,7 @@ export class WalletService {
 
   async getWalletStats(userId: string): Promise<WalletStatsDto> {
     const wallet = await this.getOrCreateWallet(userId);
-    
+
     const transactions = await this.prisma.walletTransaction.findMany({
       where: { walletId: wallet.id, status: WalletTransactionStatus.COMPLETED },
     });
@@ -620,6 +661,7 @@ export class WalletService {
     let totalSpent = 0;
     let totalWithdrawn = 0;
     let totalRefunded = 0;
+    let totalRefundDeducted = 0;
 
     for (const t of transactions) {
       const amt = Number(t.amount);
@@ -638,6 +680,9 @@ export class WalletService {
           break;
         case WalletTransactionType.REFUND:
           totalRefunded += amt;
+          break;
+        case WalletTransactionType.SELLER_REFUND_DEDUCTED:
+          totalRefundDeducted += amt;
           break;
       }
     }
