@@ -94,6 +94,7 @@ export class OrdersService {
         id: order.user.id,
         name: `${order.user.firstName} ${order.user.lastName}`.trim(),
         email: order.user.email,
+        avatar: order.user.avatar,
       },
       items: order.items.map((item: any) => ({
         id: item.id,
@@ -133,7 +134,7 @@ export class OrdersService {
         where,
         include: {
           user: {
-            select: { id: true, firstName: true, lastName: true, email: true },
+            select: { id: true, firstName: true, lastName: true, email: true, avatar: true },
           },
           items: {
             where: { product: { sellerId } },
