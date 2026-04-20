@@ -341,6 +341,37 @@ export class ProductsService {
     return { success: true, product: this.formatProduct(updated) };
   }
 
+  async updateStock(userId: string, productId: string, stock: number) {
+    const profile = await this.getSellerProfile(userId);
+
+    const existing = await this.prisma.product.findFirst({
+      where: { id: productId, sellerId: profile.id },
+    });
+    if (!existing) throw new NotFoundException('Product not found');
+
+    const data: any = { stock };
+
+    // Auto-set status based on stock
+    if (profile.isSuspended) {
+      data.status = stock === 0 ? ProductStatus.OUT_OF_STOCK : ProductStatus.INACTIVE;
+    } else {
+      data.status =
+        stock === 0
+          ? ProductStatus.OUT_OF_STOCK
+          : existing.status === ProductStatus.OUT_OF_STOCK
+            ? ProductStatus.ACTIVE
+            : existing.status;
+    }
+
+    const updated = await this.prisma.product.update({
+      where: { id: productId },
+      data,
+      include: PRODUCT_INCLUDE,
+    });
+
+    return { success: true, product: this.formatProduct(updated) };
+  }
+
   async delete(userId: string, productId: string) {
     const profile = await this.getSellerProfile(userId);
 

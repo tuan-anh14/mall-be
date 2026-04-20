@@ -159,7 +159,15 @@ export class ReturnRequestsService {
   async confirmReceiptAndRefund(userId: string, requestId: string) {
     const request = await this.prisma.returnRequest.findUnique({
       where: { id: requestId },
-      include: { order: true },
+      include: {
+        order: {
+          include: {
+            items: {
+              include: { product: true },
+            },
+          },
+        },
+      },
     });
 
     if (!request) throw new NotFoundException('Yêu cầu không tồn tại');
@@ -168,7 +176,14 @@ export class ReturnRequestsService {
     const sellerProfile = await this.prisma.sellerProfile.findUnique({ where: { userId } });
     if (!sellerProfile) throw new ForbiddenException('Chỉ người bán mới có quyền này');
 
-    const refundValue = Number(request.refundAmount || request.order.total);
+    const sellerItems = request.order.items.filter(
+      (i) => i.product.sellerId === sellerProfile.id,
+    );
+    const sellerItemsTotal = sellerItems.reduce(
+      (acc, item) => acc + Number(item.price) * item.quantity,
+      0,
+    );
+    const refundValue = Number(request.refundAmount || sellerItemsTotal);
 
     const result = await this.prisma.$transaction(async (tx) => {
       // 1. Update Request
@@ -183,14 +198,16 @@ export class ReturnRequestsService {
         data: { status: OrderStatus.REFUNDED },
       });
 
-      // Status Tracking Update (Optional but good)
-      // We can add a custom tracking step if needed
-
       return updatedReq;
     });
 
-    // 3. Process actual refund to wallet
-    await this.walletService.refundToWallet(request.userId, request.orderId, refundValue);
+    // 3. Process actual refund to wallet (ONLY from this seller)
+    await this.walletService.refundToWallet(
+      request.userId,
+      request.orderId,
+      refundValue,
+      userId,
+    );
 
     // Notify Buyer
     this.notifications.createNotification({

@@ -17,6 +17,11 @@ const STATUS_FILTER_MAP: Record<string, OrderStatus[]> = {
   ],
   Shipped: [OrderStatus.SHIPPED, OrderStatus.OUT_FOR_DELIVERY],
   Delivered: [OrderStatus.DELIVERED],
+  RETURN_REQUESTED: [
+    OrderStatus.RETURN_REQUESTED,
+    OrderStatus.RETURNED,
+    OrderStatus.REFUNDED,
+  ],
 };
 
 const STATUS_DISPLAY_MAP: Record<OrderStatus, string> = {
@@ -84,7 +89,7 @@ export class OrdersService {
       id: order.id,
       date: order.createdAt.toISOString().split('T')[0],
       status: STATUS_DISPLAY_MAP[order.status as OrderStatus] ?? order.status,
-      total: Number(order.total),
+      total: order.items.reduce((acc, item) => acc + Number(item.price) * item.quantity, 0),
       customer: {
         id: order.user.id,
         name: `${order.user.firstName} ${order.user.lastName}`.trim(),
@@ -160,7 +165,8 @@ export class OrdersService {
       returns: allOrders.filter(
         (o) =>
           o.status === OrderStatus.RETURN_REQUESTED ||
-          o.status === OrderStatus.RETURNED,
+          o.status === OrderStatus.RETURNED ||
+          o.status === OrderStatus.REFUNDED,
       ).length,
     };
 
@@ -232,7 +238,7 @@ export class OrdersService {
       // We do this AFTER the main transaction to ensure order status is updated.
       // walletService.processOrderPayout has its own transaction and idempotency check.
       try {
-        await this.walletService.processOrderPayout(orderId);
+        await this.walletService.processOrderPayout(orderId, userId);
       } catch (error) {
         console.error(`Failed to process payout for order ${orderId}:`, error);
         // We don't throw here to avoid failing the status update if payout fails

@@ -36,7 +36,7 @@ export class OrdersController {
   @ApiQuery({
     name: 'status',
     required: false,
-    enum: ['all', 'Processing', 'Shipped', 'Delivered'],
+    enum: ['all', 'Processing', 'Shipped', 'Delivered', 'RETURN_REQUESTED'],
   })
   @ApiResponse({ status: 200, description: 'Orders list with stats' })
   list(

@@ -249,7 +249,7 @@ export class WalletService {
 
   // ─── Internal: Refund to Wallet ─────────────────────────────────────────────
 
-  async refundToWallet(userId: string, orderId: string, amount: number) {
+  async refundToWallet(userId: string, orderId: string, amount: number, sellerUserId?: string) {
     const buyerWallet = await this.getOrCreateWallet(userId);
     const buyerBalance = Number(buyerWallet.balance);
     const buyerNewBalance = buyerBalance + amount;
@@ -258,6 +258,7 @@ export class WalletService {
       where: {
         orderId,
         type: WalletTransactionType.SELLER_INCOME,
+        ...(sellerUserId ? { wallet: { userId: sellerUserId } } : {}),
       },
       include: { wallet: true },
     });
@@ -543,7 +544,7 @@ export class WalletService {
 
   // ─── Internal: Process Order Payout ────────────────────────────────────────
 
-  async processOrderPayout(orderId: string) {
+  async processOrderPayout(orderId: string, targetSellerUserId?: string) {
     // 1. Fetch order with items and sellers
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
@@ -560,14 +561,14 @@ export class WalletService {
 
     if (!order) throw new Error(`Order ${orderId} not found for payout`);
 
-    // 2. Check if payout already processed (Idempotency)
     const existingPayout = await this.prisma.walletTransaction.findFirst({
       where: {
         orderId,
         type: { in: [WalletTransactionType.SELLER_INCOME] },
+        ...(targetSellerUserId ? { wallet: { userId: targetSellerUserId } } : {}),
       },
     });
-    if (existingPayout) return; // Already processed
+    if (existingPayout) return; // Already processed for this seller (or global)
 
     const orderTotal = Number(order.total);
     const orderSubtotal = Number(order.subtotal);
@@ -579,6 +580,7 @@ export class WalletService {
     for (const item of order.items) {
       const seller = item.product.seller;
       if (!seller) continue;
+      if (targetSellerUserId && seller.userId !== targetSellerUserId) continue;
 
       const itemTotal = Number(item.price) * item.quantity;
       const current = sellerMap.get(seller.id) || { userId: seller.userId, gross: 0 };
