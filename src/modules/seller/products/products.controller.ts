@@ -53,12 +53,26 @@ export class ProductsController {
   }
 
   @Put(':id')
-  @ApiOperation({ summary: 'Update a product' })
+  @ApiOperation({ summary: 'Update a product (Full)' })
   @ApiParam({ name: 'id', type: String })
   @ApiResponse({ status: 200, description: 'Product updated' })
   @ApiNotFoundResponse({ description: 'Product not found' })
   @ApiConflictResponse({ description: 'SKU already exists' })
   update(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Body() dto: UpdateProductDto,
+  ) {
+    return this.productsService.update(user.id, id, dto);
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Update a product (Partial)' })
+  @ApiParam({ name: 'id', type: String })
+  @ApiResponse({ status: 200, description: 'Product updated' })
+  @ApiNotFoundResponse({ description: 'Product not found' })
+  @ApiConflictResponse({ description: 'SKU already exists' })
+  partialUpdate(
     @CurrentUser() user: User,
     @Param('id') id: string,
     @Body() dto: UpdateProductDto,
