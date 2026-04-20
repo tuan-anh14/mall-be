@@ -22,7 +22,7 @@ import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
 import { CreateReplyDto } from './dto/create-reply.dto';
 import { CurrentUser } from '@/common/decorators/current-user.decorator';
-import { Public } from '@/common/decorators/public.decorator';
+import { OptionalAuth } from '@/common/decorators/optional-auth.decorator';
 import { PaginationDto } from '@/common/dto/pagination.dto';
 
 @ApiTags('Reviews')
@@ -31,7 +31,7 @@ import { PaginationDto } from '@/common/dto/pagination.dto';
 export class ReviewsController {
   constructor(private readonly reviewsService: ReviewsService) {}
 
-  @Public()
+  @OptionalAuth()
   @Get('products/:productId')
   @ApiOperation({ summary: 'Get reviews for a product' })
   @ApiParam({ name: 'productId', type: String })

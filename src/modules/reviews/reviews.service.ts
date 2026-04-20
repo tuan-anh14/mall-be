@@ -59,7 +59,12 @@ export class ReviewsService {
 
   async getProductReviews(productId: string, query: PaginationDto, userId?: string) {
     const { page, limit } = query;
+    const sortBy = (query as any).sortBy;
     const skip = (page - 1) * limit;
+
+    const sortOrder: any = sortBy === 'helpful' 
+      ? [{ helpful: 'desc' }, { createdAt: 'desc' }]
+      : { createdAt: 'desc' };
 
     const product = await this.prisma.product.findUnique({
       where: { id: productId },
@@ -82,7 +87,7 @@ export class ReviewsService {
             orderBy: { createdAt: 'asc' },
           },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: sortOrder,
         skip,
         take: limit,
       }),

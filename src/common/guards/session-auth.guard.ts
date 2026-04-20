@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { IS_OPTIONAL_AUTH_KEY } from '../decorators/optional-auth.decorator';
 import {
   IUserSessionRepository,
   USER_SESSION_REPOSITORY,
@@ -29,22 +30,23 @@ export class SessionAuthGuard implements CanActivate {
 
     if (isPublic) return true;
 
+    const isOptional = this.reflector.getAllAndOverride<boolean>(IS_OPTIONAL_AUTH_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
     const request = context.switchToHttp().getRequest();
     const sessionId = request.cookies?.[SESSION_COOKIE] as string | undefined;
 
-    console.log('[GUARD] cookies:', JSON.stringify(request.cookies));
-    console.log('[GUARD] sessionId:', sessionId);
-
     if (!sessionId) {
+      if (isOptional) return true;
       throw new UnauthorizedException('Unauthorized');
     }
 
-    const session =
-      await this.userSessionRepository.findByIdWithUser(sessionId);
-
-    console.log('[GUARD] session found:', session ? `id=${session.id}, isActive=${session.isActive}` : 'NULL');
+    const session = await this.userSessionRepository.findByIdWithUser(sessionId);
 
     if (!session || !session.isActive || session.expiresAt < new Date()) {
+      if (isOptional) return true;
       throw new UnauthorizedException('Unauthorized');
     }
 
