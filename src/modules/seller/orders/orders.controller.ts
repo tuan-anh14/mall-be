@@ -60,4 +60,17 @@ export class OrdersController {
   ) {
     return this.ordersService.updateStatus(user.id, id, dto.status);
   }
+
+  @Put(':id/handle-cancel')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Handle order cancellation request' })
+  @ApiParam({ name: 'id', type: String })
+  @ApiResponse({ status: 200, description: 'Cancellation request handled' })
+  handleCancel(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Body() body: { action: 'APPROVE' | 'REJECT'; note?: string },
+  ) {
+    return this.ordersService.handleCancelRequest(user.id, id, body.action, body.note);
+  }
 }

@@ -40,6 +40,7 @@ enum OrderStatus {
   REFUNDED          // Đã hoàn tiền
   RETURN_REQUESTED  // Người mua yêu cầu đổi trả
   RETURNED          // Đã trả hàng thành công
+  CANCEL_REQUESTED  // Chờ duyệt hủy
 }
 
 enum PaymentMethodType {
@@ -194,6 +195,7 @@ model SellerProfile {
   isVerified     Boolean  @default(false)
   isSuspended    Boolean  @default(false)
   isClosed       Boolean  @default(false)
+  autoAcceptCancel Boolean @default(false)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -543,6 +545,9 @@ model Order {
   user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   address       ShippingAddress? @relation(fields: [addressId], references: [id], onDelete: SetNull)
   coupon        Coupon?          @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  cancelReason  String?
+  cancelNote    String?
+  
   items         OrderItem[]
   trackingSteps OrderTracking[]
   couponUsage   CouponUsage?

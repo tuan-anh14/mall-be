@@ -489,6 +489,68 @@ export class OrdersService {
     };
   }
 
+  async requestCancel(userId: string, orderId: string, reason: string) {
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, userId },
+      include: { 
+        items: {
+          include: { product: true }
+        }
+      },
+    });
+
+    if (!order) throw new NotFoundException('Order not found');
+
+    const cancellableStatuses: OrderStatus[] = [
+      OrderStatus.PENDING,
+      OrderStatus.CONFIRMED,
+      OrderStatus.PROCESSING,
+    ];
+    if (!cancellableStatuses.includes(order.status)) {
+      throw new BadRequestException(
+        `Không thể yêu cầu hủy đơn hàng ở trạng thái "${order.status}"`,
+      );
+    }
+
+    // Determine if the order has been paid
+    const isOnlineMethod = PAID_METHODS.includes(order.paymentMethod);
+    const isPaid = isOnlineMethod && (
+      order.status !== OrderStatus.PENDING || order.paymentMethod === 'wallet'
+    );
+
+    // If it's an unpaid PENDING order, we can cancel it immediately
+    if (order.status === OrderStatus.PENDING && !isPaid) {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.order.update({
+          where: { id: orderId },
+          data: { status: OrderStatus.CANCELLED, cancelReason: reason },
+        });
+        await this.restoreStockAndCart(tx, order, userId);
+      });
+      return { message: 'Đơn hàng đã được hủy thành công', status: OrderStatus.CANCELLED };
+    }
+
+    // Otherwise, move to CANCEL_REQUESTED
+    await this.prisma.order.update({
+      where: { id: orderId },
+      data: { status: OrderStatus.CANCEL_REQUESTED, cancelReason: reason },
+    });
+
+    // Notify seller (from the first item's product)
+    const sellerId = order.items[0]?.product?.sellerId;
+    if (sellerId) {
+      this.notifications.createNotification({
+        userId: sellerId,
+        type: NotificationType.ORDER,
+        title: 'Yêu cầu hủy đơn hàng mới',
+        message: `Khách hàng yêu cầu hủy đơn hàng ${orderId}. Lý do: ${reason}`,
+        actionPage: 'seller-orders',
+      }).catch(() => { });
+    }
+
+    return { message: 'Yêu cầu hủy đơn hàng đã được gửi tới người bán', status: OrderStatus.CANCEL_REQUESTED };
+  }
+
   async cancelOrder(userId: string, orderId: string) {
     const order = await this.prisma.order.findFirst({
       where: { id: orderId, userId },
@@ -497,82 +559,50 @@ export class OrdersService {
 
     if (!order) throw new NotFoundException('Order not found');
 
-    const cancellableStatuses: OrderStatus[] = [
-      OrderStatus.PENDING,
-      OrderStatus.CONFIRMED,
-    ];
-    if (!cancellableStatuses.includes(order.status)) {
-      throw new BadRequestException(
-        `Order cannot be cancelled in "${order.status}" status`,
-      );
-    }
-
-    const wasWalletPaid = order.paymentMethod === 'wallet';
-
     await this.prisma.$transaction(async (tx) => {
       await tx.order.update({
         where: { id: orderId },
-        data: { status: wasWalletPaid ? OrderStatus.REFUNDED : OrderStatus.CANCELLED },
+        data: { status: OrderStatus.CANCELLED },
+      });
+      await this.restoreStockAndCart(tx, order, userId);
+    });
+
+    return { message: 'Đơn hàng đã được hủy' };
+  }
+
+  private async restoreStockAndCart(tx: any, order: any, userId: string) {
+    for (const item of order.items) {
+      await tx.product.update({
+        where: { id: item.productId },
+        data: { stock: { increment: item.quantity } },
       });
 
-      // Restore product stock and user cart
-      for (const item of order.items) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: { stock: { increment: item.quantity } },
-        });
+      const existingCartItem = await tx.cartItem.findFirst({
+        where: {
+          userId,
+          productId: item.productId,
+          selectedColor: item.selectedColor,
+          selectedSize: item.selectedSize,
+        },
+      });
 
-        const existingCartItem = await tx.cartItem.findFirst({
-          where: {
+      if (existingCartItem) {
+        await tx.cartItem.update({
+          where: { id: existingCartItem.id },
+          data: { quantity: { increment: item.quantity } },
+        });
+      } else {
+        await tx.cartItem.create({
+          data: {
             userId,
             productId: item.productId,
+            quantity: item.quantity,
             selectedColor: item.selectedColor,
             selectedSize: item.selectedSize,
           },
         });
-
-        if (existingCartItem) {
-          await tx.cartItem.update({
-            where: { id: existingCartItem.id },
-            data: { quantity: { increment: item.quantity } },
-          });
-        } else {
-          await tx.cartItem.create({
-            data: {
-              userId,
-              productId: item.productId,
-              quantity: item.quantity,
-              selectedColor: item.selectedColor,
-              selectedSize: item.selectedSize,
-            },
-          });
-        }
       }
-    });
-
-    // Refund to wallet if paid via wallet
-    if (wasWalletPaid) {
-      await this.walletService.refundToWallet(userId, orderId, Number(order.total));
     }
-
-    const updated = await this.prisma.order.findUniqueOrThrow({
-      where: { id: orderId },
-      include: ORDER_INCLUDE,
-    });
-
-    const notifMessage = wasWalletPaid
-      ? `Đơn hàng ${orderId} đã bị hủy. ${Number(order.total).toFixed(0)} ₫ đã được hoàn về ví của bạn.`
-      : `Đơn hàng ${orderId} của bạn đã được hủy thành công.`;
-
-    this.notifications.createNotification({
-      userId,
-      type: NotificationType.ORDER,
-      title: wasWalletPaid ? 'Đơn hàng đã hủy - Đã hoàn tiền' : 'Đơn hàng đã bị hủy',
-      message: notifMessage,
-      actionPage: 'orders',
-    }).catch(() => { });
-
-    return { order: this.formatOrder(updated) };
   }
 
   async handlePaymentCallback(orderId: string, status: WalletTransactionStatus, gatewayData?: any) {

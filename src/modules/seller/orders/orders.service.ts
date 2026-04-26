@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   forwardRef,
   Inject,
@@ -22,6 +23,7 @@ const STATUS_FILTER_MAP: Record<string, OrderStatus[]> = {
     OrderStatus.RETURNED,
     OrderStatus.REFUNDED,
   ],
+  CancelRequests: [OrderStatus.CANCEL_REQUESTED],
 };
 
 const STATUS_DISPLAY_MAP: Record<OrderStatus, string> = {
@@ -35,6 +37,7 @@ const STATUS_DISPLAY_MAP: Record<OrderStatus, string> = {
   [OrderStatus.REFUNDED]: 'Refunded',
   [OrderStatus.RETURN_REQUESTED]: 'Return Requested',
   [OrderStatus.RETURNED]: 'Returned',
+  [OrderStatus.CANCEL_REQUESTED]: 'Cancel Requested',
 };
 
 const STATUS_UPDATE_MAP: Record<string, OrderStatus> = {
@@ -169,6 +172,7 @@ export class OrdersService {
           o.status === OrderStatus.RETURNED ||
           o.status === OrderStatus.REFUNDED,
       ).length,
+      cancelRequests: allOrders.filter((o) => o.status === OrderStatus.CANCEL_REQUESTED).length,
     };
 
     return {
@@ -260,5 +264,108 @@ export class OrdersService {
         updatedAt: updated.updatedAt,
       },
     };
+  }
+
+  async handleCancelRequest(userId: string, orderId: string, action: 'APPROVE' | 'REJECT', note?: string) {
+    const profile = await this.getSellerProfile(userId);
+    const sellerId = profile.id;
+
+    const order = await this.prisma.order.findFirst({
+      where: {
+        id: orderId,
+        items: { some: { product: { sellerId } } },
+        status: OrderStatus.CANCEL_REQUESTED,
+      },
+      include: { items: true },
+    });
+
+    if (!order) throw new NotFoundException('Yêu cầu hủy không tồn tại hoặc đã được xử lý');
+
+    if (action === 'REJECT') {
+      await this.prisma.order.update({
+        where: { id: orderId },
+        data: {
+          status: OrderStatus.PROCESSING, // Revert to Processing
+          cancelNote: note,
+        },
+      });
+
+      return { success: true, message: 'Đã từ chối yêu cầu hủy' };
+    }
+
+    // APPROVE logic
+    // 2. Logic hoàn tiền (Nếu đã thanh toán)
+    const PAID_METHODS = ['wallet', 'vnpay', 'momo'];
+    const isPaid = PAID_METHODS.includes(order.paymentMethod) && 
+                  (order.status !== OrderStatus.PENDING || order.paymentMethod === 'wallet');
+
+    if (isPaid) {
+      // 3. Process refund in transaction
+      await this.prisma.$transaction(async (tx) => {
+        // Cộng ví buyer (Tiền Sàn trả khách vì đơn chưa giao Seller chưa cầm tiền)
+        await this.walletService.refundToWallet(order.userId, orderId, Number(order.total), tx);
+
+        await tx.order.update({
+          where: { id: orderId },
+          data: {
+            status: OrderStatus.CANCELLED,
+            cancelNote: note,
+          },
+        });
+        
+        // Restore stock/cart (we reuse the logic but need to implement it here or share it)
+        // I'll call a private helper
+        await this.restoreStockAndCart(tx, order, order.userId);
+      });
+    } else {
+      // Unpaid COD order that reached confirmed/processing then requested cancel
+      await this.prisma.$transaction(async (tx) => {
+        await tx.order.update({
+          where: { id: orderId },
+          data: {
+            status: OrderStatus.CANCELLED,
+            cancelNote: note,
+          },
+        });
+        await this.restoreStockAndCart(tx, order, order.userId);
+      });
+    }
+
+    return { success: true, message: 'Đã chấp nhận hủy đơn và hoàn tiền thành công' };
+  }
+
+  private async restoreStockAndCart(tx: any, order: any, userId: string) {
+    for (const item of order.items) {
+      await tx.product.update({
+        where: { id: item.productId },
+        data: { stock: { increment: item.quantity } },
+      });
+
+      const existingCartItem = await tx.cartItem.findFirst({
+        where: {
+          userId,
+          productId: item.productId,
+          selectedColor: item.selectedColor,
+          selectedSize: item.selectedSize,
+        },
+      });
+
+      if (existingCartItem) {
+        await tx.cartItem.update({
+          where: { id: existingCartItem.id },
+          data: { quantity: { increment: item.quantity } },
+        });
+      } else {
+        await tx.cartItem.create({
+          data: {
+            userId,
+            productId: item.productId,
+            quantity: item.quantity,
+            selectedColor: item.selectedColor,
+            selectedSize: item.selectedSize,
+          },
+        });
+      }
+    }
   }
 }

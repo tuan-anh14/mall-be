@@ -249,23 +249,31 @@ export class WalletService {
 
   // ─── Internal: Refund to Wallet ─────────────────────────────────────────────
 
-  async refundToWallet(userId: string, orderId: string, amount: number, sellerUserId?: string) {
-    const buyerWallet = await this.getOrCreateWallet(userId);
+  async refundToWallet(
+    userId: string,
+    orderId: string,
+    amount: number,
+    txClient?: any,
+    sellerUserId?: string,
+  ) {
+    const prisma = txClient || this.prisma;
+    const buyerWallet = await this.prisma.wallet.findUniqueOrThrow({ where: { userId } });
     const buyerBalance = Number(buyerWallet.balance);
     const buyerNewBalance = buyerBalance + amount;
 
+    // Find if seller already received income (for DELIVERED orders)
     const incomeTransactions = await this.prisma.walletTransaction.findMany({
       where: {
         orderId,
         type: WalletTransactionType.SELLER_INCOME,
-        ...(sellerUserId ? { wallet: { userId: sellerUserId } } : {}),
+        status: WalletTransactionStatus.COMPLETED,
       },
       include: { wallet: true },
     });
 
     const totalIncome = incomeTransactions.reduce((acc, t) => acc + Number(t.amount), 0);
 
-    return this.prisma.$transaction(async (tx) => {
+    const executeRefund = async (tx: any) => {
       // 1. Credit Buyer
       await tx.wallet.update({
         where: { userId },
@@ -285,37 +293,50 @@ export class WalletService {
         },
       });
 
-      // 2. Debit Seller(s)
-      for (const incomeTx of incomeTransactions) {
-        const sellerWallet = incomeTx.wallet;
-        const sellerBalance = Number(sellerWallet.balance);
+      // 2. Debit Seller(s) if order was already delivered (Income already moved to seller)
+      if (incomeTransactions.length > 0) {
+        // Case: Order was already delivered, reclaim income proportionally
+        for (const incomeTx of incomeTransactions) {
+          const sellerWallet = incomeTx.wallet;
+          const sellerBalance = Number(sellerWallet.balance);
+          const sellerShare = totalIncome > 0 ? (Number(incomeTx.amount) / totalIncome) : 1;
+          const deductionAmount = amount * sellerShare;
+          const sellerNewBalance = sellerBalance - deductionAmount;
 
-        // Deduct proportional amount if sharing, or full if single
-        const sellerShare = totalIncome > 0 ? (Number(incomeTx.amount) / totalIncome) : 1;
-        const deductionAmount = amount * sellerShare;
-        const sellerNewBalance = sellerBalance - deductionAmount;
+          await tx.wallet.update({
+            where: { id: sellerWallet.id },
+            data: { balance: sellerNewBalance },
+          });
 
-        await tx.wallet.update({
-          where: { id: sellerWallet.id },
-          data: { balance: sellerNewBalance },
-        });
-
-        await tx.walletTransaction.create({
-          data: {
-            walletId: sellerWallet.id,
-            type: WalletTransactionType.SELLER_REFUND_DEDUCTED,
-            status: WalletTransactionStatus.COMPLETED,
-            amount: deductionAmount,
-            balanceBefore: sellerBalance,
-            balanceAfter: sellerNewBalance,
-            orderId,
-            description: `Khấu trừ tiền chuyển hoàn đơn hàng ${orderId}`,
-          },
-        });
+          await tx.walletTransaction.create({
+            data: {
+              walletId: sellerWallet.id,
+              type: WalletTransactionType.SELLER_REFUND_DEDUCTED,
+              status: WalletTransactionStatus.COMPLETED,
+              amount: deductionAmount,
+              balanceBefore: sellerBalance,
+              balanceAfter: sellerNewBalance,
+              orderId,
+              description: `Truy thu tiền hoàn trả cho đơn hàng đã giao ${orderId}`,
+            },
+          });
+        }
+      } else {
+        // Case: Pre-delivery cancellation. 
+        // Money is still held by the platform (escrow), NOT in seller's wallet yet.
+        // So we ONLY credit the buyer. We do NOT debit the seller's wallet balance.
+        // This is the most fair logic.
+        console.log(`[Refund] Order ${orderId} is pre-delivery. Refunding buyer from escrow. Seller wallet untouched.`);
       }
-
+      
       return buyerNewBalance;
-    });
+    };
+
+    if (txClient) {
+      return executeRefund(txClient);
+    } else {
+      return this.prisma.$transaction(async (tx) => executeRefund(tx));
+    }
   }
 
   // ─── Admin: List Wallets ────────────────────────────────────────────────────

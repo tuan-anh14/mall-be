@@ -61,13 +61,14 @@ export class OrdersController {
 
   @Put(':id/cancel')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Cancel order' })
+  @ApiOperation({ summary: 'Request order cancellation' })
   @ApiParam({ name: 'id', type: String })
-  @ApiResponse({ status: 200, description: 'Order cancelled' })
+  @ApiResponse({ status: 200, description: 'Order cancellation requested' })
   cancelOrder(
     @CurrentUser('id') userId: string,
     @Param('id') orderId: string,
+    @Body('cancelReason') cancelReason: string,
   ) {
-    return this.ordersService.cancelOrder(userId, orderId);
+    return this.ordersService.requestCancel(userId, orderId, cancelReason || 'Người dùng yêu cầu hủy');
   }
 }
