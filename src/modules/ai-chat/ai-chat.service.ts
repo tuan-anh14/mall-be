@@ -35,7 +35,7 @@ export class AiChatService implements OnModuleInit {
     }
 
     this.modelName = this.configService.get<string>('GEMINI_MODEL') || 'gemini-1.5-flash';
-    const systemInstruction = this.configService.get<string>('GEMINI_SYSTEM_INSTRUCTION') || 'Bạn là trợ lý ảo của ShopMall.';
+    const systemInstruction = this.configService.get<string>('GEMINI_SYSTEM_INSTRUCTION') || 'Bạn là trợ lý ảo của ShopHub.';
 
     this.genAI = new GoogleGenerativeAI(this.apiKey);
 
@@ -112,7 +112,7 @@ export class AiChatService implements OnModuleInit {
     if (!userQuery || userQuery.length < 2 || this.productsCache.length === 0) return 'Hiện có danh sách sản phẩm đa dạng (Laptop, VGA, Thời trang).';
 
     const query = userQuery.toLowerCase();
-    
+
     // Check for Attribute-based queries
     const isRatingQuery = !!query.match(/(đánh giá|rating|sao|tốt nhất|uy tín|phản hồi|nhận xét)/);
     const isDiscountQuery = !!query.match(/(giảm giá|khuyến mãi|sale|rẻ|hời|discount|ưu đãi)/);
@@ -140,7 +140,7 @@ export class AiChatService implements OnModuleInit {
     const scoredProducts = this.productsCache.map(p => {
       let score = 0;
       const searchableStr = `${p.name} ${p.brand} ${p.description}`.toLowerCase();
-      
+
       expandedKeywords.forEach(k => {
         if (searchableStr.includes(k)) score += 2;
         if (p.name.toLowerCase().includes(k)) score += 3;
@@ -160,7 +160,7 @@ export class AiChatService implements OnModuleInit {
     });
 
     let matched = scoredProducts
-      .filter(ps => ps.score > 2) 
+      .filter(ps => ps.score > 2)
       .sort((a, b) => b.score - a.score)
       .map(ps => ps.product);
 
@@ -179,10 +179,10 @@ export class AiChatService implements OnModuleInit {
     return matched.map(m => {
       const discountStr = m.discount > 0 ? ` [GIẢM ${m.discount}%]` : '';
       const featStr = m.featured ? ' (Sản phẩm nổi bật)' : '';
-      const ratingStr = m.rating > 0 
-        ? ` | Đánh giá: ${m.rating.toFixed(1)}/5 (${m.reviews} nhận xét)` 
+      const ratingStr = m.rating > 0
+        ? ` | Đánh giá: ${m.rating.toFixed(1)}/5 (${m.reviews} nhận xét)`
         : ' | Chưa có đánh giá';
-      
+
       return `- ${m.name}${discountStr}${featStr}\n  Thương hiệu: ${m.brand}${ratingStr}\n  Giá: ${m.price.toLocaleString('vi-VN')} VND (Gốc: ${m.originalPrice.toLocaleString('vi-VN')} VND)\n  Trạng thái: ${m.stock > 0 ? `Còn ${m.stock} sản phẩm` : 'Hết hàng'}`;
     }).join('\n\n');
   }
@@ -272,7 +272,7 @@ QUY TẮC CỐT LÕI:
     const colorsText = colors?.length ? colors.join(', ') : 'Không có';
     const sizesText = sizes?.length ? sizes.join(', ') : 'Không có';
 
-    const prompt = `Bạn là chuyên gia copywriter cho ShopMall. 
+    const prompt = `Bạn là chuyên gia copywriter cho ShopHub. 
 Tên sản phẩm: ${name}
 Thương hiệu: ${brand || 'N/A'}
 Danh mục: ${categoryName || 'N/A'}
