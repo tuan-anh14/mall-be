@@ -87,7 +87,10 @@ export class ReturnRequestsService {
   async findOne(userId: string, requestId: string) {
     const request = await this.prisma.returnRequest.findUnique({
       where: { id: requestId },
-      include: { order: { include: { items: true } } },
+      include: { 
+        order: { include: { items: true } },
+        user: { select: { firstName: true, lastName: true, email: true } }
+      },
     });
 
     if (!request) throw new NotFoundException('Yêu cầu không tồn tại');
