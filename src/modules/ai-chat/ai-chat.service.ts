@@ -59,13 +59,17 @@ export class AiChatService implements OnModuleInit {
         // Strip out useless fields like ID, SKU, timestamps to save Context limit
         this.productsCache = parsedData.map(p => ({
           name: p.name,
-          slug: p.slug,
+          brand: p.brand || 'ShopHub',
           price: Number(p.price) || 0,
           originalPrice: Number(p.originalPrice) || 0,
-          brand: p.brand || 'ShopHub',
+          discount: Number(p.discount) || 0,
           stock: Number(p.stock) || 0,
           status: p.status,
-          description: p.description?.substring(0, 100) + '...' // Only keep short desc
+          featured: p.featured === 'true' || p.featured === true,
+          trending: p.trending === 'true' || p.trending === true,
+          rating: Number(p.ratingAverage) || 0,
+          reviews: Number(p.reviewCount) || 0,
+          description: p.description?.substring(0, 150)
         }));
         this.logger.log(`Loaded ${this.productsCache.length} products from JSON into memory for RAG.`);
       } else {
@@ -103,40 +107,84 @@ export class AiChatService implements OnModuleInit {
     }
   }
 
-  // BÍ THUẬT 1: Lọc màng sô (Pre-filtering)
+  // BÍ THUẬT 1: Lọc màng sô (Pre-filtering) với Semantic Synonyms & Attribute Search
   private preFilterProducts(userQuery: string): string {
-    if (!userQuery || userQuery.length < 3 || this.productsCache.length === 0) return 'Không có thông tin sản phẩm cụ thể.';
+    if (!userQuery || userQuery.length < 2 || this.productsCache.length === 0) return 'Hiện có danh sách sản phẩm đa dạng (Laptop, VGA, Thời trang).';
 
     const query = userQuery.toLowerCase();
     
-    // Check if query is likely a product search/question
-    const productKeywords = ['có', 'bán', 'mua', 'giá', 'nhiều', 'vga', 'card', 'laptop', 'chuột', 'phím', 'màn hình', 'cpu', 'ram', 'ổ cứng'];
-    const isProductRelated = productKeywords.some(k => query.includes(k));
-    if (!isProductRelated && userQuery.length < 10) return 'Khách chưa hỏi về sản phẩm cụ thể.';
+    // Check for Attribute-based queries
+    const isRatingQuery = !!query.match(/(đánh giá|rating|sao|tốt nhất|uy tín|phản hồi|nhận xét)/);
+    const isDiscountQuery = !!query.match(/(giảm giá|khuyến mãi|sale|rẻ|hời|discount|ưu đãi)/);
+    const isTrendingQuery = !!query.match(/(hot|trend|nổi bật|bán chạy|featured)/);
 
-    const keywords = query.split(' ').filter(k => k.length > 2);
+    // Semantic Expansion (Synonyms)
+    const synonyms: Record<string, string[]> = {
+      'thời trang': ['quần', 'áo', 'váy', 'đầm', 'set bộ', 'nỉ', 'len'],
+      'quần áo': ['thời trang', 'váy', 'đầm', 'áo', 'quần'],
+      'vga': ['card màn hình', 'nvidia', 'rtx', 'gtx', 'amd', 'gigabyte', 'msi', 'asus'],
+      'laptop': ['máy tính xách tay', 'acer', 'msi', 'lenovo', 'macbook'],
+      'điện máy': ['nồi cơm', 'bếp', 'máy lọc nước', 'điều hòa', 'sunhouse'],
+      'gia dụng': ['nồi', 'chảo', 'máy ép', 'máy lọc'],
+      'linh kiện': ['vga', 'ram', 'cpu', 'psu', 'mainboard', 'ổ cứng'],
+      'bóng đá': ['football', 'bóng', 'áo đấu']
+    };
+
+    let expandedKeywords = query.split(' ').filter(k => k.length >= 2);
+    Object.entries(synonyms).forEach(([key, values]) => {
+      if (query.includes(key) || values.some(v => query.includes(v))) {
+        expandedKeywords = [...new Set([...expandedKeywords, key, ...values])];
+      }
+    });
 
     const scoredProducts = this.productsCache.map(p => {
       let score = 0;
-      const searchableStr = (p.name + ' ' + p.brand + ' ' + (p.description || '')).toLowerCase();
-      keywords.forEach(k => {
-        if (searchableStr.includes(k)) score += 2;
-      });
-      // Bonus if brand matches
-      if (p.brand && query.includes(p.brand.toLowerCase())) score += 3;
+      const searchableStr = `${p.name} ${p.brand} ${p.description}`.toLowerCase();
       
+      expandedKeywords.forEach(k => {
+        if (searchableStr.includes(k)) score += 2;
+        if (p.name.toLowerCase().includes(k)) score += 3;
+        if (p.brand.toLowerCase() === k) score += 5;
+      });
+
+      // Attribute Boosting
+      if (isRatingQuery && p.rating > 0) score += (p.rating * 3); // High boost for high rating
+      if (isDiscountQuery && p.discount > 0) score += 8;
+      if (isTrendingQuery && (p.trending || p.featured)) score += 8;
+
+      if (p.featured) score += 2;
+      if (p.trending) score += 1;
+      if (p.stock > 0) score += 1;
+
       return { product: p, score };
     });
 
-    const matched = scoredProducts
-      .filter(ps => ps.score > 2) // Higher threshold
+    let matched = scoredProducts
+      .filter(ps => ps.score > 2) 
       .sort((a, b) => b.score - a.score)
-      .map(ps => ps.product)
-      .slice(0, 4); // Take top 4 for brevity
+      .map(ps => ps.product);
 
-    if (matched.length === 0) return 'Không tìm thấy sản phẩm nào khớp hoàn toàn.';
+    // Fallback logic: If no specific products matched by keywords, provide Top-rated/Trending as context
+    if (matched.length === 0) {
+      matched = this.productsCache
+        .filter(p => p.trending || p.featured || p.rating > 0)
+        .sort((a, b) => b.rating - a.rating)
+        .slice(0, 4);
+    } else {
+      matched = matched.slice(0, 5);
+    }
 
-    return matched.map(m => `- ${m.name} (${m.brand})\n  Giá: ${m.price.toLocaleString('vi-VN')} VND\n  Tình trạng: ${m.stock > 0 ? 'Còn hàng' : 'Hết hàng'}`).join('\n\n');
+    if (matched.length === 0) return 'Hiện không có sản phẩm nào phù hợp.';
+
+    return matched.map(m => {
+      const discountStr = m.discount > 0 ? ` [GIẢM ${m.discount}%]` : '';
+      const featStr = m.featured ? ' (Sản phẩm nổi bật)' : '';
+      const ratingStr = m.rating > 0 
+        ? ` | Đánh giá: ${m.rating.toFixed(1)}/5 (${m.reviews} nhận xét)` 
+        : ' | Chưa có đánh giá';
+      
+      return `- ${m.name}${discountStr}${featStr}\n  Thương hiệu: ${m.brand}${ratingStr}\n  Giá: ${m.price.toLocaleString('vi-VN')} VND (Gốc: ${m.originalPrice.toLocaleString('vi-VN')} VND)\n  Trạng thái: ${m.stock > 0 ? `Còn ${m.stock} sản phẩm` : 'Hết hàng'}`;
+    }).join('\n\n');
   }
 
   // ==== HIGH PERFORMANCE RAG-LITE STREAMING ====
@@ -152,29 +200,29 @@ export class AiChatService implements OnModuleInit {
       userQuery = lastMessage.parts.map(p => p.text).join(' ');
     }
 
-    // Prepare Context Injection - Optimize: only fetch if needed
+    // Prepare Context Injection - Optimize: Parallel execution to reduce TTFT
     const currentDateTime = new Date().toLocaleString('vi-VN');
-    const needsCoupons = userQuery.toLowerCase().match(/(giảm giá|khuyến mãi|coupon|mã|voucher)/);
-    const activeCouponsStr = needsCoupons ? await this.fetchActiveCoupons() : 'Chỉ cung cấp khi khách hỏi về khuyến mãi.';
-    
-    // Only pre-filter if the query is not a simple greeting
-    const isGreeting = userQuery.length < 5 || userQuery.toLowerCase().match(/^(hi|hello|chào|xin chào)$/);
-    const filteredProductsStr = isGreeting ? 'Khách chỉ đang chào hỏi.' : this.preFilterProducts(userQuery);
+    const needsCoupons = !!userQuery.toLowerCase().match(/(giảm giá|khuyến mãi|coupon|mã|voucher)/);
+    const isGreeting = userQuery.length < 5 || !!userQuery.toLowerCase().match(/^(hi|hello|chào|xin chào|hey|đây)$/);
+
+    const [activeCouponsStr, filteredProductsStr] = await Promise.all([
+      needsCoupons ? this.fetchActiveCoupons() : Promise.resolve('Chỉ cung cấp khi khách hỏi về khuyến mãi.'),
+      isGreeting ? Promise.resolve('Khách chỉ đang chào hỏi.') : Promise.resolve(this.preFilterProducts(userQuery))
+    ]);
 
     const systemInstruction = `
-Bạn là "ShopHub AI" - Trợ lý bán hàng chuyên nghiệp của ShopHub. 
-NGỮ CẢNH HỆ THỐNG:
+Bạn là "ShopHub AI" - Chuyên gia tư vấn bán hàng. 
+DỮ LIỆU HIỆN CÓ:
 - Thời gian: ${currentDateTime}
 - MÃ GIẢM GIÁ: ${activeCouponsStr}
 - SẢN PHẨM PHÙ HỢP: ${filteredProductsStr}
 
-QUY TẮC PHẢN HỒI (RẤT QUAN TRỌNG):
-1. ĐỊNH DẠNG: Trả lời bằng văn bản thuần túy, rõ ràng. Xuống dòng (dùng \\n) hợp lý để phân tách các ý. 
-2. TRÁNH KÝ TỰ ĐẶC BIỆT: Tuyệt đối KHÔNG dùng các ký tự như **, *, #, hoặc nội dung nằm trong [ ]. Không dùng thẻ HTML <a>.
-3. NGÔN NGỮ: Lịch sự, thân thiện, ngắn gọn, đúng trọng tâm. 
-4. NỘI DUNG: Chỉ dùng thông tin trong NGỮ CẢNH để trả lời. Nếu không có thông tin, hãy khéo léo từ chối hoặc yêu cầu khách cung cấp thêm chi tiết.
-5. QUY TRÌNH: Tư vấn nhiệt tình -> Gợi ý sản phẩm phù hợp -> Giải đáp thắc mắc về chính sách.
-6. CHÍNH SÁCH: Hủy đơn (khi PENDING), Đổi trả (7 ngày), Thanh toán (VNPAY, Wallet, COD).
+QUY TẮC CỐT LÕI:
+1. TRẢ LỜI NHANH: Tập trung vào thông tin khách hỏi. Không dông dài.
+2. ĐỊNH DẠNG: Văn bản thuần túy, phân đoạn bằng \\n. KHÔNG ký tự Markdown (** , * , #), KHÔNG HTML.
+3. CHUYÊN MÔN: Dùng dữ liệu "SẢN PHẨM PHÙ HỢP" để gợi ý. Nếu khách hỏi loại hàng không có trong danh sách, hãy báo là hiện hết hàng hoặc chưa có và gợi ý khách theo dõi thêm.
+4. QUY TRÌNH: Chào hỏi -> Giải đáp -> Gợi ý chốt đơn.
+5. CHÍNH SÁCH: Hủy đơn (PENDING), Đổi trả (7 ngày), Thanh toán (VNPAY, Wallet, COD).
 `;
 
     const modelWithContext = this.genAI.getGenerativeModel({
