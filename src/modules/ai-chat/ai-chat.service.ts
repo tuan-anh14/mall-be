@@ -16,6 +16,9 @@ export class AiChatService implements OnModuleInit {
   private defaultModel: GenerativeModel;
   private readonly logger = new Logger(AiChatService.name);
   private productsCache: any[] = [];
+  private couponsCache: string = '';
+  private lastCouponFetch: number = 0;
+  private readonly COUPON_CACHE_TTL = 600000; // 10 minutes cache
   private apiKey: string;
   private modelName: string;
 
@@ -35,7 +38,7 @@ export class AiChatService implements OnModuleInit {
     const systemInstruction = this.configService.get<string>('GEMINI_SYSTEM_INSTRUCTION') || 'Bạn là trợ lý ảo của ShopMall.';
 
     this.genAI = new GoogleGenerativeAI(this.apiKey);
-    
+
     // Default model used for old non-streaming endpoints & generateDescription
     this.defaultModel = this.genAI.getGenerativeModel({
       model: this.modelName,
@@ -52,7 +55,7 @@ export class AiChatService implements OnModuleInit {
       if (fs.existsSync(filePath)) {
         const rawData = fs.readFileSync(filePath, 'utf-8');
         const parsedData = JSON.parse(rawData);
-        
+
         // Strip out useless fields like ID, SKU, timestamps to save Context limit
         this.productsCache = parsedData.map(p => ({
           name: p.name,
@@ -73,46 +76,67 @@ export class AiChatService implements OnModuleInit {
     }
   }
 
-  // Fetch Coupons realtime from DB
+  // Fetch Coupons realtime with simple caching to prevent DB congestion
   private async fetchActiveCoupons() {
-     try {
-       const coupons = await this.prisma.coupon.findMany({
-         where: { isActive: true },
-       });
-       if(coupons.length === 0) return 'Hiện không có mã giảm giá nào.';
-       return coupons.map(c => `- Mã: ${c.code} | Loại: ${c.type} | Giảm: ${c.value} | Đơn tối thiểu: ${c.minOrderAmount || 0}`).join('\n');
-     } catch (e) {
-       this.logger.error('Error fetching coupons', e);
-       return 'Không lấy được mã giảm giá.';
-     }
+    const now = Date.now();
+    if (this.couponsCache && (now - this.lastCouponFetch < this.COUPON_CACHE_TTL)) {
+      return this.couponsCache;
+    }
+
+    try {
+      const coupons = await this.prisma.coupon.findMany({
+        where: { isActive: true },
+        select: { code: true, type: true, value: true, minOrderAmount: true } // Only fetch what's needed
+      });
+
+      if (coupons.length === 0) {
+        this.couponsCache = 'Hiện không có mã giảm giá nào.';
+      } else {
+        this.couponsCache = coupons.map(c => `- Mã: ${c.code} | Giảm: ${c.value} | Đơn tối thiểu: ${c.minOrderAmount || 0}`).join('\n');
+      }
+
+      this.lastCouponFetch = now;
+      return this.couponsCache;
+    } catch (e) {
+      this.logger.error('Error fetching coupons', e);
+      return this.couponsCache || 'Không lấy được mã giảm giá.';
+    }
   }
 
   // BÍ THUẬT 1: Lọc màng sô (Pre-filtering)
   private preFilterProducts(userQuery: string): string {
-    if (!userQuery || this.productsCache.length === 0) return 'Không có sản phẩm nào.';
-    
+    if (!userQuery || userQuery.length < 3 || this.productsCache.length === 0) return 'Không có thông tin sản phẩm cụ thể.';
+
     const query = userQuery.toLowerCase();
-    const keywords = query.split(' ').filter(k => k.length > 2); // Simple keyword tokenization
     
-    // Sort products by keyword matches
+    // Check if query is likely a product search/question
+    const productKeywords = ['có', 'bán', 'mua', 'giá', 'nhiều', 'vga', 'card', 'laptop', 'chuột', 'phím', 'màn hình', 'cpu', 'ram', 'ổ cứng'];
+    const isProductRelated = productKeywords.some(k => query.includes(k));
+    if (!isProductRelated && userQuery.length < 10) return 'Khách chưa hỏi về sản phẩm cụ thể.';
+
+    const keywords = query.split(' ').filter(k => k.length > 2);
+
     const scoredProducts = this.productsCache.map(p => {
       let score = 0;
-      const searchableStr = (p.name + ' ' + p.brand + ' ' + p.description).toLowerCase();
+      const searchableStr = (p.name + ' ' + p.brand + ' ' + (p.description || '')).toLowerCase();
       keywords.forEach(k => {
-        if (searchableStr.includes(k)) score++;
+        if (searchableStr.includes(k)) score += 2;
       });
+      // Bonus if brand matches
+      if (p.brand && query.includes(p.brand.toLowerCase())) score += 3;
+      
       return { product: p, score };
     });
 
     const matched = scoredProducts
-       .filter(ps => ps.score > 0)
-       .sort((a, b) => b.score - a.score)
-       .map(ps => ps.product)
-       .slice(0, 5); // Take top 5 ONLY
+      .filter(ps => ps.score > 2) // Higher threshold
+      .sort((a, b) => b.score - a.score)
+      .map(ps => ps.product)
+      .slice(0, 4); // Take top 4 for brevity
 
-    if (matched.length === 0) return 'Không tìm thấy sản phẩm nào khớp với từ khóa của khách.';
+    if (matched.length === 0) return 'Không tìm thấy sản phẩm nào khớp hoàn toàn.';
 
-    return matched.map(m => `- [${m.brand}] ${m.name}\n  Giá bán: ${m.price.toLocaleString('vi-VN')} VND (Gốc: ${m.originalPrice.toLocaleString('vi-VN')} VND)\n  Tình trạng: ${m.stock > 0 ? 'Còn hàng' : 'Hết hàng'}\n  Link (sử dụng cái này): <a href="/product/${m.slug}">Xem ngay</a>`).join('\n\n');
+    return matched.map(m => `- ${m.name} (${m.brand})\n  Giá: ${m.price.toLocaleString('vi-VN')} VND\n  Tình trạng: ${m.stock > 0 ? 'Còn hàng' : 'Hết hàng'}`).join('\n\n');
   }
 
   // ==== HIGH PERFORMANCE RAG-LITE STREAMING ====
@@ -128,27 +152,29 @@ export class AiChatService implements OnModuleInit {
       userQuery = lastMessage.parts.map(p => p.text).join(' ');
     }
 
-    // Prepare Context Injection
-    const currentDateTime = new Date().toISOString();
-    const activeCouponsStr = await this.fetchActiveCoupons();
-    const filteredProductsStr = this.preFilterProducts(userQuery);
+    // Prepare Context Injection - Optimize: only fetch if needed
+    const currentDateTime = new Date().toLocaleString('vi-VN');
+    const needsCoupons = userQuery.toLowerCase().match(/(giảm giá|khuyến mãi|coupon|mã|voucher)/);
+    const activeCouponsStr = needsCoupons ? await this.fetchActiveCoupons() : 'Chỉ cung cấp khi khách hỏi về khuyến mãi.';
+    
+    // Only pre-filter if the query is not a simple greeting
+    const isGreeting = userQuery.length < 5 || userQuery.toLowerCase().match(/^(hi|hello|chào|xin chào)$/);
+    const filteredProductsStr = isGreeting ? 'Khách chỉ đang chào hỏi.' : this.preFilterProducts(userQuery);
 
     const systemInstruction = `
-Bạn là "Trợ lý ảo ShopHub", đại diện cho ShopHub tư vấn bán hàng. Tên bạn là ShopHub AI.
-NGỮ CẢNH DỮ LIỆU THỰC TẾ (Sử dụng dữ liệu này để trả lời khách, KHÔNG bịa ra data khác):
-- Thời gian hệ thống: ${currentDateTime}
-- CÁC MÃ GIẢM GIÁ (COUPON) ĐANG CÓ HIỆU LỰC:
-${activeCouponsStr}
-- SẢN PHẨM KHỚP VỚI CÂU HỎI HIỆN TẠI CỦA KHÁCH:
-${filteredProductsStr}
+Bạn là "ShopHub AI" - Trợ lý bán hàng chuyên nghiệp của ShopHub. 
+NGỮ CẢNH HỆ THỐNG:
+- Thời gian: ${currentDateTime}
+- MÃ GIẢM GIÁ: ${activeCouponsStr}
+- SẢN PHẨM PHÙ HỢP: ${filteredProductsStr}
 
-QUY TẮC BẮT BUỘC:
-1. Đa lượt (Multi-turn): Dựa vào lịch sử chat để biết ngữ cảnh. Dẫn dắt khách theo tiến trình: Nhu cầu -> Ngân sách -> Gợi ý chốt đơn. KHÔNG lặp lại câu hỏi khách đã trả lời.
-2. Chính sách Hủy đơn: Chỉ được hủy khi đơn ở trạng thái PENDING.
-3. Chính sách Đổi trả: Trong vòng 7 ngày (Trạng thái đơn: RETURN_REQUESTED).
-4. Thanh toán: Hỗ trợ VNPAY, MOMO, Thẻ tín dụng, Wallet Nội bộ và Tiền mặt (COD). KHÔNG hỗ trợ phương thức khác.
-5. Gợi ý Link: Khi gợi ý sản phẩm, BẮT BUỘC tạo the HTML <a href="..."> dựa vào đường dẫn Link được cung cấp trong khối SẢN PHẨM KHỚP.
-6. Hướng dẫn định dạng: Định dạng bằng Markdown bình thường (dùng *đậm*, \n xuống dòng) để UI render đẹp nhất.
+QUY TẮC PHẢN HỒI (RẤT QUAN TRỌNG):
+1. ĐỊNH DẠNG: Trả lời bằng văn bản thuần túy, rõ ràng. Xuống dòng (dùng \\n) hợp lý để phân tách các ý. 
+2. TRÁNH KÝ TỰ ĐẶC BIỆT: Tuyệt đối KHÔNG dùng các ký tự như **, *, #, hoặc nội dung nằm trong [ ]. Không dùng thẻ HTML <a>.
+3. NGÔN NGỮ: Lịch sự, thân thiện, ngắn gọn, đúng trọng tâm. 
+4. NỘI DUNG: Chỉ dùng thông tin trong NGỮ CẢNH để trả lời. Nếu không có thông tin, hãy khéo léo từ chối hoặc yêu cầu khách cung cấp thêm chi tiết.
+5. QUY TRÌNH: Tư vấn nhiệt tình -> Gợi ý sản phẩm phù hợp -> Giải đáp thắc mắc về chính sách.
+6. CHÍNH SÁCH: Hủy đơn (khi PENDING), Đổi trả (7 ngày), Thanh toán (VNPAY, Wallet, COD).
 `;
 
     const modelWithContext = this.genAI.getGenerativeModel({
@@ -165,8 +191,8 @@ QUY TẮC BẮT BUỘC:
       const result = await modelWithContext.generateContentStream({ contents: history });
       return result.stream;
     } catch (error) {
-       this.logger.error('Gemini Generate Stream Error:', error);
-       throw new Error('Lỗi từ AI hoặc cấu hình API sai.');
+      this.logger.error('Gemini Generate Stream Error:', error);
+      throw new Error('Lỗi từ AI hoặc cấu hình API sai.');
     }
   }
 
