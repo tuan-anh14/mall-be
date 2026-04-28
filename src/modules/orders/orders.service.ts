@@ -377,7 +377,7 @@ export class OrdersService {
       sellerGroups.get(product.sellerId)!.push({ item, product });
     }
 
-    const paymentGroupId = 'PAY-' + Date.now() + Math.floor(Math.random() * 1000);
+    const paymentGroupId = 'ORD-' + Date.now() + Math.floor(Math.random() * 1000);
     let firstOrderId = '';
 
     const createdOrderIds = await this.prisma.$transaction(async (tx) => {
@@ -406,6 +406,7 @@ export class OrdersService {
             userId,
             sellerId,
             paymentGroupId,
+            isPaidOnline,
             status: initialStatus,
             subtotal: sellerSubtotal,
             shippingCost: sellerShipping,
@@ -666,48 +667,52 @@ export class OrdersService {
     }
   }
 
-  async handlePaymentCallback(orderId: string, status: WalletTransactionStatus, gatewayData?: any) {
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
+  async handlePaymentCallback(paymentGroupId: string, status: WalletTransactionStatus, gatewayData?: any) {
+    const orders = await this.prisma.order.findMany({
+      where: { paymentGroupId },
       include: { items: true },
     });
 
-    if (!order) return { message: 'Order not found' };
-    if (order.status !== OrderStatus.PENDING) return { message: 'Order already processed' };
+    if (orders.length === 0) return { message: 'Order not found' };
+    if (orders.some(o => o.status !== OrderStatus.PENDING)) return { message: 'Order already processed' };
 
     if (status === WalletTransactionStatus.COMPLETED) {
       await this.prisma.$transaction(async (tx) => {
-        await tx.order.update({
-          where: { id: orderId },
+        await tx.order.updateMany({
+          where: { paymentGroupId },
           data: {
             status: OrderStatus.CONFIRMED,
             paymentRef: gatewayData?.vnp_TransactionNo ?? null,
+            isPaidOnline: true,
           },
         });
 
+        const orderIds = orders.map(o => o.id);
         await tx.orderTracking.updateMany({
-          where: { orderId, sortOrder: 1 },
+          where: { orderId: { in: orderIds }, sortOrder: 1 },
           data: { isCompleted: true, completedAt: new Date(), isCurrent: true },
         });
         await tx.orderTracking.updateMany({
-          where: { orderId, sortOrder: 0 },
+          where: { orderId: { in: orderIds }, sortOrder: 0 },
           data: { isCurrent: false },
         });
       });
 
       this.notifications.createNotification({
-        userId: order.userId,
+        userId: orders[0].userId,
         type: NotificationType.ORDER,
         title: 'Thanh toán thành công',
-        message: `Đơn hàng ${orderId} đã được thanh toán thành công.`,
+        message: `Đơn hàng của bạn đã được thanh toán VNPAY thành công.`,
         actionPage: 'orders',
       }).catch(() => { });
 
     } else if (status === WalletTransactionStatus.CANCELLED || status === WalletTransactionStatus.FAILED) {
-      await this.cancelOrder(order.userId, orderId);
+      for (const order of orders) {
+        await this.cancelOrder(order.userId, order.id);
+      }
     }
 
-    return { success: true, orderId, status };
+    return { success: true, paymentGroupId, status };
   }
 }
 
