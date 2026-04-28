@@ -26,10 +26,12 @@ const ORDER_INCLUDE = {
       product: {
         include: {
           images: { where: { isPrimary: true }, take: 1 },
+          seller: { select: { id: true, storeName: true } },
         },
       },
     },
   },
+  seller: { select: { id: true, storeName: true } },
   trackingSteps: { orderBy: { sortOrder: 'asc' as const } },
 };
 
@@ -98,6 +100,8 @@ export class OrdersService {
         selectedSize: item.selectedSize,
         productName: item.productName,
         productImage: item.productImage,
+        sellerId: item.product?.seller?.id ?? order.sellerId ?? null,
+        sellerName: item.product?.seller?.storeName ?? order.seller?.storeName ?? null,
         product: item.product
           ? {
             id: item.product.id,
@@ -108,6 +112,7 @@ export class OrdersService {
           }
           : null,
       })),
+      // Legacy tracking (order-level) — giữ cho backward-compat
       tracking: {
         current: currentStep?.status ?? order.status,
         steps: (order.trackingSteps ?? []).map((step: any) => ({
@@ -119,6 +124,37 @@ export class OrdersService {
           isCurrent: step.isCurrent,
         })),
       },
+      // SellerOrders — mỗi seller có status + tracking riêng (Multi-vendor)
+      sellerOrders: (order.sellerOrders ?? []).map((so: any) => {
+        const soCurrentStep = so.tracking?.find((s: any) => s.isCurrent);
+        return {
+          id: so.id,
+          sellerId: so.sellerId,
+          sellerName: so.seller?.storeName ?? 'Shop',
+          status: so.status,
+          tracking: {
+            current: soCurrentStep?.status ?? so.status,
+            steps: (so.tracking ?? []).map((step: any) => ({
+              status: step.status,
+              label: step.label,
+              description: step.description,
+              date: step.completedAt,
+              completed: step.isCompleted,
+              isCurrent: step.isCurrent,
+            })),
+          },
+          items: (so.items ?? []).map((item: any) => ({
+            id: item.id,
+            productId: item.productId,
+            quantity: item.quantity,
+            price: Number(item.price),
+            selectedColor: item.selectedColor,
+            selectedSize: item.selectedSize,
+            productName: item.productName,
+            productImage: item.productImage,
+          })),
+        };
+      }),
       createdAt: order.createdAt,
       updatedAt: order.updatedAt,
     };
@@ -319,67 +355,83 @@ export class OrdersService {
     const DEFAULT_SHIPPING_COST = 50000;
     const VAT_RATE = 0.1;
 
+    let initialStatus: OrderStatus = OrderStatus.PENDING;
+    let isPaidOnline = false;
+
+    if (dto.paymentMethod === 'wallet') {
+      initialStatus = OrderStatus.CONFIRMED;
+      isPaidOnline = true;
+    } else if (dto.paymentMethod === 'vnpay' || dto.paymentMethod === 'card') {
+      initialStatus = OrderStatus.PENDING;
+    }
+
     const shippingCost = subtotal >= FREE_SHIPPING_THRESHOLD ? 0 : DEFAULT_SHIPPING_COST;
     const tax = subtotal * VAT_RATE;
     const total = Math.round(Math.max(0, subtotal - couponDiscount + shippingCost + tax));
 
-    // Generate unique order ID
-    let orderId = this.generateOrderId();
-    while (await this.prisma.order.findUnique({ where: { id: orderId } })) {
-      orderId = this.generateOrderId();
+    // Group items by seller
+    const sellerGroups = new Map<string, Array<{ item: typeof rawItems[0]; product: any }>>();
+    for (const item of rawItems) {
+      const product = productMap.get(item.productId)!;
+      if (!sellerGroups.has(product.sellerId)) sellerGroups.set(product.sellerId, []);
+      sellerGroups.get(product.sellerId)!.push({ item, product });
     }
 
-    const isPaidOnline = PAID_METHODS.includes(dto.paymentMethod);
-    const initialStatus =
-      dto.paymentMethod === 'wallet'
-        ? OrderStatus.CONFIRMED
-        : OrderStatus.PENDING;
+    const paymentGroupId = 'PAY-' + Date.now() + Math.floor(Math.random() * 1000);
+    let firstOrderId = '';
 
-    // For wallet payment, pre-check balance before entering transaction
-    if (dto.paymentMethod === 'wallet') {
-      const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
-      const balance = wallet ? Number(wallet.balance) : 0;
-      if (balance < total) {
-        throw new BadRequestException(
-          `Số dư ví không đủ. Hiện có: ${balance.toFixed(0)} ₫, cần: ${total.toFixed(0)} ₫`,
+    const createdOrderIds = await this.prisma.$transaction(async (tx) => {
+      const ids: string[] = [];
+      let index = 1;
+
+      for (const [sellerId, sellerItems] of sellerGroups) {
+        const sellerSubtotal = sellerItems.reduce(
+          (acc, { product, item }) => acc + Number(product.price) * item.quantity,
+          0
         );
-      }
-    }
+        const ratio = sellerSubtotal / subtotal;
+        
+        const sellerShipping = Math.round(shippingCost * ratio);
+        const sellerTax = Math.round(tax * ratio);
+        const sellerCoupon = Math.round(couponDiscount * ratio);
+        const sellerTotal = Math.round(Math.max(0, sellerSubtotal - sellerCoupon + sellerShipping + sellerTax));
 
-    const order = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.order.create({
-        data: {
-          id: orderId,
-          userId,
-          status: initialStatus,
-          subtotal,
-          shippingCost,
-          tax,
-          total,
-          couponId: coupon?.id ?? null,
-          couponCode: coupon?.code ?? null,
-          couponDiscount: couponDiscount > 0 ? couponDiscount : null,
-          paymentMethod: dto.paymentMethod,
-          paymentRef: dto.paymentRef ?? null,
-          addressId: dto.addressId ?? null,
-          shippingFirstName: shipping.firstName,
-          shippingLastName: shipping.lastName,
-          shippingEmail: shipping.email,
-          shippingPhone: shipping.phone ?? null,
-          shippingStreet: shipping.street,
-          shippingCity: shipping.city,
-          shippingState: shipping.state,
-          shippingZip: shipping.zip,
-          shippingCountry: shipping.country,
-          notes: dto.notes ?? null,
-        },
-      });
+        const orderId = `${this.generateOrderId()}-${index}`;
+        if (!firstOrderId) firstOrderId = orderId;
+        index++;
 
-      // Create order items
-      await tx.orderItem.createMany({
-        data: rawItems.map((item) => {
-          const product = productMap.get(item.productId)!;
-          return {
+        const created = await tx.order.create({
+          data: {
+            id: orderId,
+            userId,
+            sellerId,
+            paymentGroupId,
+            status: initialStatus,
+            subtotal: sellerSubtotal,
+            shippingCost: sellerShipping,
+            tax: sellerTax,
+            total: sellerTotal,
+            couponId: coupon?.id ?? null,
+            couponCode: coupon?.code ?? null,
+            couponDiscount: sellerCoupon > 0 ? sellerCoupon : null,
+            paymentMethod: dto.paymentMethod,
+            paymentRef: dto.paymentRef ?? null,
+            addressId: dto.addressId ?? null,
+            shippingFirstName: shipping.firstName,
+            shippingLastName: shipping.lastName,
+            shippingEmail: shipping.email,
+            shippingPhone: shipping.phone ?? null,
+            shippingStreet: shipping.street,
+            shippingCity: shipping.city,
+            shippingState: shipping.state,
+            shippingZip: shipping.zip,
+            shippingCountry: shipping.country,
+            notes: dto.notes ?? null,
+          },
+        });
+
+        await tx.orderItem.createMany({
+          data: sellerItems.map(({ item, product }) => ({
             orderId: created.id,
             productId: item.productId,
             quantity: item.quantity,
@@ -388,25 +440,36 @@ export class OrdersService {
             selectedSize: item.selectedSize ?? null,
             productName: product.name,
             productImage: product.images?.[0]?.url ?? null,
-          };
-        }),
-      });
+          })),
+        });
 
-      // Create tracking steps
-      const now = new Date();
-      await tx.orderTracking.createMany({
-        data: TRACKING_STEPS.map((step) => ({
-          orderId: created.id,
-          status: step.status,
-          label: step.label,
-          sortOrder: step.sortOrder,
-          isCompleted: isPaidOnline ? step.sortOrder <= 1 : step.sortOrder === 0,
-          isCurrent: isPaidOnline ? step.sortOrder === 1 : step.sortOrder === 0,
-          completedAt: isPaidOnline
-            ? step.sortOrder <= 1 ? now : null
-            : step.sortOrder === 0 ? now : null,
-        })),
-      });
+        const now = new Date();
+        await tx.orderTracking.createMany({
+          data: TRACKING_STEPS.map((step) => ({
+            orderId: created.id,
+            status: step.status,
+            label: step.label,
+            sortOrder: step.sortOrder,
+            isCompleted: isPaidOnline ? step.sortOrder <= 1 : step.sortOrder === 0,
+            isCurrent: isPaidOnline ? step.sortOrder === 1 : step.sortOrder === 0,
+            completedAt: isPaidOnline
+              ? step.sortOrder <= 1 ? now : null
+              : step.sortOrder === 0 ? now : null,
+          })),
+        });
+
+        if (dto.paymentMethod === 'wallet') {
+          await this.walletService.payWithWalletInTx(tx, userId, created.id, Number(created.total));
+        }
+
+        if (coupon) {
+          await tx.couponUsage.create({
+            data: { couponId: coupon.id, userId, orderId: created.id },
+          });
+        }
+        
+        ids.push(created.id);
+      }
 
       // Decrement product stock
       for (const item of rawItems) {
@@ -416,50 +479,39 @@ export class OrdersService {
         });
       }
 
-      // Increment coupon usage
       if (coupon) {
         await tx.coupon.update({
           where: { id: coupon.id },
           data: { usageCount: { increment: 1 } },
         });
-        await tx.couponUsage.create({
-          data: { couponId: coupon.id, userId, orderId: created.id },
-        });
       }
 
-      // Wallet payment: debit balance inside same transaction
-      if (dto.paymentMethod === 'wallet') {
-        await this.walletService.payWithWalletInTx(tx, userId, created.id, total);
-      }
-
-      // Always clear the user's cart after placing an order
       await tx.cartItem.deleteMany({ where: { userId } });
-
-      return created.id;
-    });
-
-    const createdOrder = await this.prisma.order.findUniqueOrThrow({
-      where: { id: order },
-      include: ORDER_INCLUDE,
+      return ids;
     });
 
     let paymentUrl: string | undefined;
     if (dto.paymentMethod === 'vnpay') {
       const vnpayResult = await this.paymentService.createVnpayUrl(
-        createdOrder.id,
-        Number(createdOrder.total),
-        '127.0.0.1', // Should ideally be from request, but keeping same as wallet logic
+        paymentGroupId, // Use paymentGroupId for VNPay
+        total,
+        '127.0.0.1',
         dto.returnUrl,
       );
-      paymentUrl = vnpayResult; // It returns a string now
+      paymentUrl = vnpayResult;
     }
+
+    const firstCreatedOrder = await this.prisma.order.findUniqueOrThrow({
+      where: { id: createdOrderIds[0] },
+      include: ORDER_INCLUDE,
+    });
 
     // Notify buyer that order was placed
     this.notifications.createNotification({
       userId,
       type: NotificationType.ORDER,
       title: 'Đặt hàng thành công',
-      message: `Đơn hàng ${orderId} của bạn đã được đặt thành công. Tổng cộng: ${total.toFixed(0)} ₫.`,
+      message: `Giỏ hàng của bạn đã được tách thành ${createdOrderIds.length} kiện hàng. Tổng cộng: ${total.toFixed(0)} ₫.`,
       actionPage: 'orders',
     }).catch(() => { });
 
@@ -478,13 +530,13 @@ export class OrdersService {
         userId: sellerUserId,
         type: NotificationType.ORDER,
         title: 'Bạn có đơn hàng mới',
-        message: `Đơn hàng mới ${orderId} vừa được đặt. Hãy kiểm tra và xác nhận đơn hàng.`,
+        message: `Khách hàng vừa đặt đơn hàng mới. Hãy kiểm tra và xác nhận đơn hàng.`,
         actionPage: 'dashboard',
       }).catch(() => { });
     }
 
     return {
-      order: this.formatOrder(createdOrder),
+      order: this.formatOrder(firstCreatedOrder),
       paymentUrl,
     };
   }
@@ -494,8 +546,13 @@ export class OrdersService {
       where: { id: orderId, userId },
       include: { 
         items: {
-          include: { product: true }
-        }
+          include: { 
+            product: {
+              // [BUG1 FIX] Include seller.userId để lấy đúng User.id (không phải SellerProfile.id)
+              include: { seller: { select: { userId: true } } },
+            },
+          },
+        },
       },
     });
 
@@ -530,17 +587,21 @@ export class OrdersService {
       return { message: 'Đơn hàng đã được hủy thành công', status: OrderStatus.CANCELLED };
     }
 
-    // Otherwise, move to CANCEL_REQUESTED
+    // Move Order + tất cả active SellerOrders → CANCEL_REQUESTED
+    // If paid, change to CANCEL_REQUESTED (Wait for seller approval)
     await this.prisma.order.update({
       where: { id: orderId },
       data: { status: OrderStatus.CANCEL_REQUESTED, cancelReason: reason },
     });
 
-    // Notify seller (from the first item's product)
-    const sellerId = order.items[0]?.product?.sellerId;
-    if (sellerId) {
+    const sellerUserIds = new Set<string>();
+    for (const item of order.items) {
+      const sellerUserId = (item.product as any)?.seller?.userId;
+      if (sellerUserId) sellerUserIds.add(sellerUserId);
+    }
+    for (const sellerUserId of sellerUserIds) {
       this.notifications.createNotification({
-        userId: sellerId,
+        userId: sellerUserId,
         type: NotificationType.ORDER,
         title: 'Yêu cầu hủy đơn hàng mới',
         message: `Khách hàng yêu cầu hủy đơn hàng ${orderId}. Lý do: ${reason}`,

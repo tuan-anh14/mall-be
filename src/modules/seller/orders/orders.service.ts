@@ -11,18 +11,10 @@ import { OrderStatus, TrackingStatus } from 'generated/prisma/client';
 import { WalletService } from '../../wallet/wallet.service';
 
 const STATUS_FILTER_MAP: Record<string, OrderStatus[]> = {
-  Processing: [
-    OrderStatus.PENDING,
-    OrderStatus.CONFIRMED,
-    OrderStatus.PROCESSING,
-  ],
+  Processing: [OrderStatus.PENDING, OrderStatus.CONFIRMED, OrderStatus.PROCESSING],
   Shipped: [OrderStatus.SHIPPED, OrderStatus.OUT_FOR_DELIVERY],
   Delivered: [OrderStatus.DELIVERED],
-  RETURN_REQUESTED: [
-    OrderStatus.RETURN_REQUESTED,
-    OrderStatus.RETURNED,
-    OrderStatus.REFUNDED,
-  ],
+  RETURN_REQUESTED: [OrderStatus.RETURN_REQUESTED, OrderStatus.RETURNED, OrderStatus.REFUNDED],
   CancelRequests: [OrderStatus.CANCEL_REQUESTED],
 };
 
@@ -44,6 +36,20 @@ const STATUS_UPDATE_MAP: Record<string, OrderStatus> = {
   Processing: OrderStatus.PROCESSING,
   Shipped: OrderStatus.SHIPPED,
   Delivered: OrderStatus.DELIVERED,
+};
+
+const TRACKING_SORT_ORDER: Record<string, number> = {
+  [OrderStatus.PROCESSING]: 1,
+  [OrderStatus.SHIPPED]: 2,
+  [OrderStatus.OUT_FOR_DELIVERY]: 3,
+  [OrderStatus.DELIVERED]: 4,
+};
+
+const ORDER_STATUS_TO_TRACKING: Record<string, TrackingStatus> = {
+  [OrderStatus.PROCESSING]: TrackingStatus.CONFIRMED,
+  [OrderStatus.SHIPPED]: TrackingStatus.SHIPPED,
+  [OrderStatus.OUT_FOR_DELIVERY]: TrackingStatus.OUT_FOR_DELIVERY,
+  [OrderStatus.DELIVERED]: TrackingStatus.DELIVERED,
 };
 
 @Injectable()
@@ -80,9 +86,7 @@ export class OrdersService {
           }
         }
       }
-      if (!profile) {
-        throw new ForbiddenException('Bạn chưa có hồ sơ người bán');
-      }
+      if (!profile) throw new ForbiddenException('Bạn chưa có hồ sơ người bán');
     }
     return profile;
   }
@@ -90,9 +94,11 @@ export class OrdersService {
   private formatOrder(order: any) {
     return {
       id: order.id,
+      paymentGroupId: order.paymentGroupId,
       date: order.createdAt.toISOString().split('T')[0],
       status: STATUS_DISPLAY_MAP[order.status as OrderStatus] ?? order.status,
-      total: order.items.reduce((acc, item) => acc + Number(item.price) * item.quantity, 0),
+      rawStatus: order.status,
+      total: Number(order.total),
       customer: {
         id: order.user.id,
         name: `${order.user.firstName} ${order.user.lastName}`.trim(),
@@ -109,6 +115,20 @@ export class OrdersService {
         productName: item.productName,
         productImage: item.productImage,
       })),
+      tracking: {
+        current: order.trackingSteps?.find((s: any) => s.isCurrent)?.status,
+        steps: (order.trackingSteps ?? []).map((step: any) => ({
+          status: step.status,
+          label: step.label,
+          description: step.description,
+          date: step.completedAt,
+          completed: step.isCompleted,
+          isCurrent: step.isCurrent,
+        })),
+      },
+      cancelReason: order.cancelReason,
+      cancelNote: order.cancelNote,
+      paymentMethod: order.paymentMethod,
       createdAt: order.createdAt,
       returnRequest: order.returnRequest,
     };
@@ -118,59 +138,46 @@ export class OrdersService {
     const profile = await this.getSellerProfile(userId);
     const sellerId = profile.id;
 
-    const baseWhere: any = {
-      items: { some: { product: { sellerId } } },
-    };
-
+    const baseWhere: any = { sellerId };
     const where: any = { ...baseWhere };
-    if (search) where.id = { contains: search, mode: 'insensitive' };
+
+    if (search) {
+      where.OR = [
+        { id: { contains: search, mode: 'insensitive' } },
+        { paymentGroupId: { contains: search, mode: 'insensitive' } },
+      ];
+    }
     if (status && status !== 'all' && STATUS_FILTER_MAP[status]) {
       where.status = { in: STATUS_FILTER_MAP[status] };
     }
 
     const [allOrders, orders] = await Promise.all([
       this.prisma.order.findMany({
-        where: baseWhere,
+        where: { sellerId },
         select: { status: true },
       }),
       this.prisma.order.findMany({
         where,
         include: {
-          user: {
-            select: { id: true, firstName: true, lastName: true, email: true, avatar: true },
-          },
-          items: {
-            where: { product: { sellerId } },
-          },
+          user: { select: { id: true, firstName: true, lastName: true, email: true, avatar: true } },
           returnRequest: true,
+          items: true,
+          trackingSteps: { orderBy: { sortOrder: 'asc' } },
         },
         orderBy: { createdAt: 'desc' },
       }),
     ]);
 
-    const pendingStatuses: string[] = [
-      OrderStatus.PENDING,
-      OrderStatus.CONFIRMED,
-      OrderStatus.PROCESSING,
-    ];
-    const shippedStatuses: string[] = [
-      OrderStatus.SHIPPED,
-      OrderStatus.OUT_FOR_DELIVERY,
-    ];
+    const pendingStatuses: OrderStatus[] = [OrderStatus.PENDING, OrderStatus.CONFIRMED, OrderStatus.PROCESSING];
+    const shippedStatuses: OrderStatus[] = [OrderStatus.SHIPPED, OrderStatus.OUT_FOR_DELIVERY];
 
     const stats = {
       total: allOrders.length,
-      pending: allOrders.filter((o) => pendingStatuses.includes(o.status))
-        .length,
-      shipped: allOrders.filter((o) => shippedStatuses.includes(o.status))
-        .length,
-      delivered: allOrders.filter((o) => o.status === OrderStatus.DELIVERED)
-        .length,
-      returns: allOrders.filter(
-        (o) =>
-          o.status === OrderStatus.RETURN_REQUESTED ||
-          o.status === OrderStatus.RETURNED ||
-          o.status === OrderStatus.REFUNDED,
+      pending: allOrders.filter((o) => pendingStatuses.includes(o.status)).length,
+      shipped: allOrders.filter((o) => shippedStatuses.includes(o.status)).length,
+      delivered: allOrders.filter((o) => o.status === OrderStatus.DELIVERED).length,
+      returns: allOrders.filter((o) =>
+        ([OrderStatus.RETURN_REQUESTED, OrderStatus.RETURNED, OrderStatus.REFUNDED] as OrderStatus[]).includes(o.status as OrderStatus)
       ).length,
       cancelRequests: allOrders.filter((o) => o.status === OrderStatus.CANCEL_REQUESTED).length,
     };
@@ -181,78 +188,54 @@ export class OrdersService {
     };
   }
 
-  // Map OrderStatus to the corresponding TrackingStatus sort order threshold
-  private readonly TRACKING_SORT_ORDER: Record<string, number> = {
-    [OrderStatus.PROCESSING]: 1,
-    [OrderStatus.SHIPPED]: 2,
-    [OrderStatus.OUT_FOR_DELIVERY]: 3,
-    [OrderStatus.DELIVERED]: 4,
-  };
-
-  private readonly ORDER_STATUS_TO_TRACKING: Record<string, TrackingStatus> = {
-    [OrderStatus.PROCESSING]: TrackingStatus.CONFIRMED,
-    [OrderStatus.SHIPPED]: TrackingStatus.SHIPPED,
-    [OrderStatus.OUT_FOR_DELIVERY]: TrackingStatus.OUT_FOR_DELIVERY,
-    [OrderStatus.DELIVERED]: TrackingStatus.DELIVERED,
-  };
-
   async updateStatus(userId: string, orderId: string, status: string) {
     const profile = await this.getSellerProfile(userId);
     const sellerId = profile.id;
 
     const order = await this.prisma.order.findFirst({
-      where: {
-        id: orderId,
-        items: { some: { product: { sellerId } } },
-      },
+      where: { id: orderId, sellerId },
     });
-    if (!order) throw new NotFoundException('Order not found');
+    if (!order) throw new NotFoundException('Order not found or access denied');
 
     const dbStatus = STATUS_UPDATE_MAP[status];
-    const currentSortOrder = this.TRACKING_SORT_ORDER[dbStatus] ?? 0;
-    const currentTrackingStatus = this.ORDER_STATUS_TO_TRACKING[dbStatus];
+    if (!dbStatus) throw new BadRequestException(`Invalid status: ${status}`);
+
+    const currentSortOrder = TRACKING_SORT_ORDER[dbStatus] ?? 0;
+    const currentTrackingStatus = ORDER_STATUS_TO_TRACKING[dbStatus];
     const now = new Date();
 
     await this.prisma.$transaction(async (tx) => {
       await tx.order.update({
-        where: { id: orderId },
+        where: { id: order.id },
         data: { status: dbStatus },
       });
 
       if (currentTrackingStatus) {
-        // Mark all steps up to and including current as completed
         await tx.orderTracking.updateMany({
-          where: { orderId, sortOrder: { lte: currentSortOrder } },
+          where: { orderId: order.id, sortOrder: { lte: currentSortOrder } },
           data: { isCompleted: true, isCurrent: false, completedAt: now },
         });
-        // Mark steps after current as not completed
         await tx.orderTracking.updateMany({
-          where: { orderId, sortOrder: { gt: currentSortOrder } },
+          where: { orderId: order.id, sortOrder: { gt: currentSortOrder } },
           data: { isCompleted: false, isCurrent: false, completedAt: null },
         });
-        // Set the current step
         await tx.orderTracking.updateMany({
-          where: { orderId, status: currentTrackingStatus },
+          where: { orderId: order.id, status: currentTrackingStatus },
           data: { isCurrent: true },
         });
       }
     });
 
-    // ───── Trigger Wallet Payout ─────
     if (dbStatus === OrderStatus.DELIVERED) {
-      // We do this AFTER the main transaction to ensure order status is updated.
-      // walletService.processOrderPayout has its own transaction and idempotency check.
       try {
-        await this.walletService.processOrderPayout(orderId, userId);
+        await this.walletService.processOrderPayout(order.id, userId);
       } catch (error) {
-        console.error(`Failed to process payout for order ${orderId}:`, error);
-        // We don't throw here to avoid failing the status update if payout fails
-        // but it should be logged or handled via a retry mechanism.
+        console.error(`Failed to process payout for order ${order.id}:`, error);
       }
     }
 
     const updated = await this.prisma.order.findUniqueOrThrow({
-      where: { id: orderId },
+      where: { id: order.id },
       select: { id: true, status: true, updatedAt: true },
     });
 
@@ -266,70 +249,51 @@ export class OrdersService {
     };
   }
 
-  async handleCancelRequest(userId: string, orderId: string, action: 'APPROVE' | 'REJECT', note?: string) {
+  async handleCancelRequest(
+    userId: string,
+    orderId: string,
+    action: 'APPROVE' | 'REJECT',
+    note?: string,
+  ) {
     const profile = await this.getSellerProfile(userId);
     const sellerId = profile.id;
 
     const order = await this.prisma.order.findFirst({
-      where: {
-        id: orderId,
-        items: { some: { product: { sellerId } } },
-        status: OrderStatus.CANCEL_REQUESTED,
+      where: { id: orderId, sellerId, status: OrderStatus.CANCEL_REQUESTED },
+      include: {
+        items: true,
       },
-      include: { items: true },
     });
-
     if (!order) throw new NotFoundException('Yêu cầu hủy không tồn tại hoặc đã được xử lý');
 
     if (action === 'REJECT') {
       await this.prisma.order.update({
-        where: { id: orderId },
-        data: {
-          status: OrderStatus.PROCESSING, // Revert to Processing
-          cancelNote: note,
-        },
+        where: { id: order.id },
+        data: { status: OrderStatus.PROCESSING, cancelNote: note },
       });
-
       return { success: true, message: 'Đã từ chối yêu cầu hủy' };
     }
 
-    // APPROVE logic
-    // 2. Logic hoàn tiền (Nếu đã thanh toán)
     const PAID_METHODS = ['wallet', 'vnpay', 'momo'];
-    const isPaid = PAID_METHODS.includes(order.paymentMethod) && 
-                  (order.status !== OrderStatus.PENDING || order.paymentMethod === 'wallet');
+    const isPaid = PAID_METHODS.includes(order.paymentMethod);
 
-    if (isPaid) {
-      // 3. Process refund in transaction
-      await this.prisma.$transaction(async (tx) => {
-        // Cộng ví buyer (Tiền Sàn trả khách vì đơn chưa giao Seller chưa cầm tiền)
-        await this.walletService.refundToWallet(order.userId, orderId, Number(order.total), tx);
+    await this.prisma.$transaction(async (tx) => {
+      if (isPaid && Number(order.total) > 0) {
+        await this.walletService.refundToWallet(
+          order.userId,
+          order.id,
+          Number(order.total),
+          tx,
+        );
+      }
 
-        await tx.order.update({
-          where: { id: orderId },
-          data: {
-            status: OrderStatus.CANCELLED,
-            cancelNote: note,
-          },
-        });
-        
-        // Restore stock/cart (we reuse the logic but need to implement it here or share it)
-        // I'll call a private helper
-        await this.restoreStockAndCart(tx, order, order.userId);
+      await tx.order.update({
+        where: { id: order.id },
+        data: { status: OrderStatus.CANCELLED, cancelNote: note },
       });
-    } else {
-      // Unpaid COD order that reached confirmed/processing then requested cancel
-      await this.prisma.$transaction(async (tx) => {
-        await tx.order.update({
-          where: { id: orderId },
-          data: {
-            status: OrderStatus.CANCELLED,
-            cancelNote: note,
-          },
-        });
-        await this.restoreStockAndCart(tx, order, order.userId);
-      });
-    }
+
+      await this.restoreStockAndCart(tx, order, order.userId);
+    });
 
     return { success: true, message: 'Đã chấp nhận hủy đơn và hoàn tiền thành công' };
   }

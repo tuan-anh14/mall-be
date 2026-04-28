@@ -203,9 +203,10 @@ model SellerProfile {
   // Dùng Prisma aggregation để lấy: totalRevenue, totalOrders, totalProducts, totalCustomers
   // Xem query mẫu ở mục 6
 
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  products Product[]
-  coupons  Coupon[]
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  products     Product[]
+  coupons      Coupon[]
+  orders       Order[]        // Các đơn hàng thuộc về seller này
 
   @@map("seller_profiles")
 }
@@ -522,6 +523,8 @@ model Order {
 
   paymentMethod String                         // "card", "paypal", "crypto"
   paymentRef    String?                        // Mã giao dịch / "ending in 3456"
+  paymentGroupId String?                       // ID gom nhóm để checkout 1 lần nhiều Order độc lập
+  sellerId      String                         // Shop nào quản lý Order này
 
   // Snapshot địa chỉ giao hàng tại thời điểm đặt
   shippingFirstName String
@@ -543,6 +546,7 @@ model Order {
   updatedAt     DateTime    @updatedAt
 
   user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  seller        SellerProfile    @relation(fields: [sellerId], references: [id], onDelete: Restrict)
   address       ShippingAddress? @relation(fields: [addressId], references: [id], onDelete: SetNull)
   coupon        Coupon?          @relation(fields: [couponId], references: [id], onDelete: SetNull)
   cancelReason  String?
@@ -554,10 +558,14 @@ model Order {
   returnRequest ReturnRequest?
 
   @@index([userId])
+  @@index([sellerId])
   @@index([status])
+  @@index([paymentGroupId])
   @@index([createdAt(sort: Desc)])
   @@map("orders")
 }
+
+
 
 model OrderItem {
   id            String   @id @default(cuid())
@@ -572,8 +580,8 @@ model OrderItem {
   productName   String
   productImage  String?
 
-  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product     Product      @relation(fields: [productId], references: [id], onDelete: Restrict)
 
   @@map("order_items")
 }
@@ -594,6 +602,8 @@ model OrderTracking {
 
   @@map("order_trackings")
 }
+
+
 
 // ============================================================
 // USER SETTINGS & ADDRESSES
