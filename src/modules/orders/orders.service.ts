@@ -684,6 +684,7 @@ export class OrdersService {
             status: OrderStatus.CONFIRMED,
             paymentRef: gatewayData?.vnp_TransactionNo ?? null,
             isPaidOnline: true,
+            revenueStatus: 'PENDING',
           },
         });
 

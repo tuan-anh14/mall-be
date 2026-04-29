@@ -244,6 +244,12 @@ export class WalletService {
       },
     });
 
+    // Update order status
+    await tx.order.update({
+      where: { id: orderId },
+      data: { revenueStatus: 'PENDING' },
+    });
+
     return newBalance;
   }
 

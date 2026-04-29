@@ -21,6 +21,8 @@ import {
   UpdateAdminProductDto,
 } from './dto/admin.dto';
 import { NotificationsService } from '../notifications/notifications.service';
+import { WalletService } from '../wallet/wallet.service';
+import { OrderStatus, RevenueStatus } from 'generated/prisma/client';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -33,6 +35,7 @@ export class AdminService {
     private readonly notificationsService: NotificationsService,
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
+    private readonly walletService: WalletService,
   ) {}
 
   private validateCouponPayload(dto: {
@@ -756,5 +759,125 @@ export class AdminService {
       this.logger.error('Failed to retrain moderation model: %s', err?.message);
       return { success: false, message: err?.message || 'AI service unavailable' };
     }
+  }
+
+  // ─── FINANCE MANAGEMENT ──────────────────────────────────────────────────
+
+  async getFinanceStats() {
+    const stats = await this.prisma.order.aggregate({
+      where: { revenueStatus: 'PENDING' },
+      _sum: { total: true },
+      _count: { id: true },
+    });
+
+    return {
+      escrowBalance: Number(stats._sum.total || 0),
+      escrowOrdersCount: stats._count.id,
+    };
+  }
+
+  async getEscrowOrders(page = 1, limit = 20) {
+    const skip = (page - 1) * limit;
+    const where = { revenueStatus: 'PENDING' as RevenueStatus };
+
+    const [orders, total] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        include: {
+          user: { select: { id: true, firstName: true, lastName: true, email: true } },
+          seller: { select: { id: true, storeName: true } },
+        },
+        orderBy: { updatedAt: 'asc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.order.count({ where }),
+    ]);
+
+    return {
+      orders: orders.map((o) => ({
+        id: o.id,
+        total: Number(o.total),
+        status: o.status,
+        revenueStatus: o.revenueStatus,
+        createdAt: o.createdAt,
+        updatedAt: o.updatedAt,
+        customer: o.user,
+        seller: o.seller,
+      })),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  async forceReleaseOrder(adminId: string, orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { seller: { select: { userId: true } } },
+    });
+
+    if (!order) throw new NotFoundException('Order not found');
+    if (order.revenueStatus !== 'PENDING') {
+      throw new BadRequestException(`Đơn hàng ở trạng thái ${order.revenueStatus}, không thể giải ngân.`);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      // 1. Process Payout using existing WalletService logic
+      await this.walletService.processOrderPayout(order.id, order.seller.userId);
+
+      // 2. Update Order status
+      await tx.order.update({
+        where: { id: orderId },
+        data: { revenueStatus: 'RELEASED' },
+      });
+
+      // 3. Log Audit
+      await this.logAction(adminId, 'FORCE_RELEASE', 'order', orderId, {
+        amount: Number(order.total),
+        sellerId: order.sellerId,
+      });
+    });
+
+    return { success: true, message: 'Đã giải ngân cưỡng bức thành công' };
+  }
+
+  async forceRefundOrder(adminId: string, orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+    });
+
+    if (!order) throw new NotFoundException('Order not found');
+    if (order.revenueStatus !== 'PENDING') {
+      throw new BadRequestException(`Đơn hàng ở trạng thái ${order.revenueStatus}, không thể hoàn tiền.`);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      // 1. Refund to Buyer
+      await this.walletService.refundToWallet(
+        order.userId,
+        order.id,
+        Number(order.total),
+        tx,
+      );
+
+      // 2. Update Order status
+      await tx.order.update({
+        where: { id: orderId },
+        data: { 
+          status: 'CANCELLED' as any,
+          revenueStatus: 'REFUNDED' 
+        },
+      });
+
+      // 3. Log Audit
+      await this.logAction(adminId, 'FORCE_REFUND', 'order', orderId, {
+        amount: Number(order.total),
+        userId: order.userId,
+      });
+    });
+
+    return { success: true, message: 'Đã hoàn tiền cưỡng bức thành công' };
   }
 }

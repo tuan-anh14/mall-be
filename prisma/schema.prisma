@@ -524,7 +524,8 @@ model Order {
   paymentMethod  String // "card", "paypal", "crypto"
   paymentRef     String? // Mã giao dịch / "ending in 3456"
   paymentGroupId String? // ID gom nhóm để checkout 1 lần nhiều Order độc lập
-  isPaidOnline   Boolean @default(false) // Đã thanh toán qua VNPAY/Wallet chưa
+  isPaidOnline   Boolean       @default(false) // Đã thanh toán qua VNPAY/Wallet chưa
+  revenueStatus  RevenueStatus @default(UNPAID) // Trạng thái doanh thu (Sàn giữ/Đã trả shop)
   sellerId       String // Shop nào quản lý Order này
 
   // Snapshot địa chỉ giao hàng tại thời điểm đặt
@@ -981,4 +982,11 @@ model ReturnRequest {
   user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("return_requests")
+}
+
+enum RevenueStatus {
+  UNPAID // Chưa thanh toán (Đơn COD)
+  PENDING // Đã thanh toán, Sàn đang tạm giữ (Escrow)
+  RELEASED // Đã trả tiền vào ví cho Shop
+  REFUNDED // Đã hoàn tiền lại cho khách
 }

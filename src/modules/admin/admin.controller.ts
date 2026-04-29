@@ -296,4 +296,40 @@ export class AdminController {
     await this.adminService.logAction(admin.id, 'RETRAIN', 'moderation_model', 'model');
     return result;
   }
+
+  // ─── FINANCE MANAGEMENT ──────────────────────────────────────────────────
+
+  @Get('finance/stats')
+  @ApiOperation({ summary: 'Get finance overview (Escrow balance)' })
+  getFinanceStats() {
+    return this.adminService.getFinanceStats();
+  }
+
+  @Get('finance/escrow-orders')
+  @ApiOperation({ summary: 'List orders waiting for payout (Escrow)' })
+  getEscrowOrders(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.adminService.getEscrowOrders(
+      page ? parseInt(page) : 1,
+      limit ? parseInt(limit) : 20,
+    );
+  }
+
+  @Post('finance/orders/:id/force-release')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Force release funds to seller wallet' })
+  async forceRelease(@Req() req: Request, @Param('id') id: string) {
+    const admin = req.user as User;
+    return this.adminService.forceReleaseOrder(admin.id, id);
+  }
+
+  @Post('finance/orders/:id/force-refund')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Force refund funds to buyer wallet' })
+  async forceRefund(@Req() req: Request, @Param('id') id: string) {
+    const admin = req.user as User;
+    return this.adminService.forceRefundOrder(admin.id, id);
+  }
 }

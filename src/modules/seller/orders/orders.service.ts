@@ -58,7 +58,7 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     @Inject(forwardRef(() => WalletService))
     private readonly walletService: WalletService,
-  ) {}
+  ) { }
 
   private async getSellerProfile(userId: string) {
     let profile = await this.prisma.sellerProfile.findUnique({ where: { userId } });
@@ -129,6 +129,7 @@ export class OrdersService {
       cancelReason: order.cancelReason,
       cancelNote: order.cancelNote,
       paymentMethod: order.paymentMethod,
+      revenueStatus: order.revenueStatus,
       createdAt: order.createdAt,
       returnRequest: order.returnRequest,
     };
@@ -207,7 +208,10 @@ export class OrdersService {
     await this.prisma.$transaction(async (tx) => {
       await tx.order.update({
         where: { id: order.id },
-        data: { status: dbStatus },
+        data: {
+          status: dbStatus,
+          revenueStatus: dbStatus === OrderStatus.DELIVERED ? 'RELEASED' : order.revenueStatus,
+        },
       });
 
       if (currentTrackingStatus) {
@@ -289,7 +293,11 @@ export class OrdersService {
 
       await tx.order.update({
         where: { id: order.id },
-        data: { status: OrderStatus.CANCELLED, cancelNote: note },
+        data: {
+          status: OrderStatus.CANCELLED,
+          revenueStatus: isPaid ? 'REFUNDED' : order.revenueStatus,
+          cancelNote: note
+        },
       });
 
       await this.restoreStockAndCart(tx, order, order.userId);
