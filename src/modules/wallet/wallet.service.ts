@@ -146,11 +146,12 @@ export class WalletService {
     returnUrl?: string,
   ): string {
     const base = 'https://test-payment.momo.vn/v2/gateway/pay';
+    const finalReturnUrl = returnUrl || process.env.VNP_RETURN_URL_WEB || 'http://localhost:5173/wallet';
 
     const params = new URLSearchParams({
       vnp_TxnRef: txnId,
       vnp_Amount: String(Math.round(amount * 100)),
-      vnp_ReturnUrl: returnUrl ?? 'http://localhost:5173/wallet',
+      vnp_ReturnUrl: finalReturnUrl,
     });
     return `${base}?${params.toString()}`;
   }
@@ -334,7 +335,7 @@ export class WalletService {
         // This is the most fair logic.
         console.log(`[Refund] Order ${orderId} is pre-delivery. Refunding buyer from escrow. Seller wallet untouched.`);
       }
-      
+
       return buyerNewBalance;
     };
 

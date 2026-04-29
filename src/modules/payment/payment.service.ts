@@ -12,7 +12,8 @@ export class PaymentService {
   private readonly tmnCode: string;
   private readonly secretKey: string;
   private readonly vnpUrl: string;
-  private readonly defaultReturnUrl: string;
+  private readonly webReturnUrl: string;
+  private readonly mobileReturnUrl: string;
 
   constructor(
     private readonly configService: ConfigService,
@@ -24,7 +25,8 @@ export class PaymentService {
     this.tmnCode = this.configService.get<string>('VNP_TMN_CODE', '');
     this.secretKey = this.configService.get<string>('VNP_HASH_SECRET', '');
     this.vnpUrl = this.configService.get<string>('VNP_URL', '');
-    this.defaultReturnUrl = this.configService.get<string>('VNP_RETURN_URL', '');
+    this.webReturnUrl = this.configService.get<string>('VNP_RETURN_URL_WEB', '');
+    this.mobileReturnUrl = this.configService.get<string>('VNP_RETURN_URL_MOBILE', '');
   }
 
   private sortObject(obj: any) {
@@ -57,7 +59,7 @@ export class PaymentService {
       vnp_OrderInfo: `Thanh_toan_nap_tien${txnId}`,
       vnp_OrderType: 'billpayment',
       vnp_Amount: Math.round(amount * 100),
-      vnp_ReturnUrl: returnUrl || this.defaultReturnUrl,
+      vnp_ReturnUrl: returnUrl || this.webReturnUrl,
       vnp_IpAddr: ipAddr || '127.0.0.1',
       vnp_CreateDate: createDate,
     };
