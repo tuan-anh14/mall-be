@@ -121,4 +121,5 @@ export class WalletStatsDto {
   totalSpent: number;     // Expenses
   totalWithdrawn: number; 
   totalRefunded: number;
+  totalDeposited: number;
 }

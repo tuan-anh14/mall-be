@@ -691,10 +691,14 @@ export class WalletService {
     let totalWithdrawn = 0;
     let totalRefunded = 0;
     let totalRefundDeducted = 0;
+    let totalDeposited = 0;
 
     for (const t of transactions) {
       const amt = Number(t.amount);
       switch (t.type) {
+        case WalletTransactionType.DEPOSIT:
+          totalDeposited += amt;
+          break;
         case WalletTransactionType.SELLER_INCOME:
           netIncome += amt;
           break;
@@ -727,6 +731,7 @@ export class WalletService {
       totalSpent,
       totalWithdrawn,
       totalRefunded,
+      totalDeposited,
     };
   }
 }
