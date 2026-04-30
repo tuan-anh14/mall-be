@@ -38,6 +38,7 @@ export interface OAuthProfile {
   provider: string;
   providerAccountId: string;
   email: string;
+  emailVerified?: boolean;
   firstName: string;
   lastName: string;
   avatar?: string;
@@ -61,7 +62,10 @@ export class AuthService {
     private readonly emailService: EmailService,
   ) {}
 
-  buildUserResponse(user: User, sellerRequestStatus?: string | null): AuthUserDto {
+  buildUserResponse(
+    user: User,
+    sellerRequestStatus?: string | null,
+  ): AuthUserDto {
     let userType: 'buyer' | 'seller' | 'admin' = 'buyer';
     if (user.userType === UserType.SELLER) userType = 'seller';
     else if (user.userType === UserType.ADMIN) userType = 'admin';
@@ -122,7 +126,9 @@ export class AuthService {
     const firstName = nameParts[0];
     const lastName = nameParts.slice(1).join(' ');
 
-    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const verificationCode = Math.floor(
+      100000 + Math.random() * 900000,
+    ).toString();
     const verificationExpires = new Date(Date.now() + 10 * 60 * 1000);
 
     const user = await this.prisma.user.create({
@@ -191,7 +197,9 @@ export class AuthService {
     }
 
     if (!user.isEmailVerified) {
-      throw new UnauthorizedException('Email chưa được xác thực. Vui lòng kiểm tra hộp thư.');
+      throw new UnauthorizedException(
+        'Email chưa được xác thực. Vui lòng kiểm tra hộp thư.',
+      );
     }
 
     const sessionId = await this.createSession(user.id, req);
@@ -221,7 +229,10 @@ export class AuthService {
       select: { email: true },
     });
     if (userWithEmail) {
-      await this.emailService.sendPasswordResetEmail(userWithEmail.email, rawToken);
+      await this.emailService.sendPasswordResetEmail(
+        userWithEmail.email,
+        rawToken,
+      );
     }
 
     return rawToken;
@@ -239,7 +250,7 @@ export class AuthService {
     await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id: reset.userId },
-        data: { 
+        data: {
           password: hashedPassword,
           isEmailVerified: true, // Mark as verified since they used the email link
         },
@@ -294,12 +305,17 @@ export class AuthService {
       provider,
       providerAccountId,
       email,
+      emailVerified,
       firstName,
       lastName,
       avatar,
       accessToken,
       refreshToken,
     } = profile;
+
+    if (!email) {
+      throw new BadRequestException('OAuth account does not provide an email');
+    }
 
     const existingOAuth = await this.oAuthAccountRepository.findByProvider(
       provider,
@@ -314,6 +330,15 @@ export class AuthService {
         accessToken,
         refreshToken,
       });
+      if (!user.isEmailVerified || (!user.avatar && avatar)) {
+        user = await this.prisma.user.update({
+          where: { id: user.id },
+          data: {
+            isEmailVerified: emailVerified ?? true,
+            avatar: user.avatar || avatar,
+          },
+        });
+      }
     } else {
       user = await this.prisma.$transaction(async (tx) => {
         let existingUser = await tx.user.findUnique({ where: { email } });
@@ -326,6 +351,18 @@ export class AuthService {
               lastName: lastName || '',
               userType: UserType.BUYER,
               avatar,
+              isEmailVerified: emailVerified ?? true,
+            },
+          });
+        } else if (
+          !existingUser.isEmailVerified ||
+          (!existingUser.avatar && avatar)
+        ) {
+          existingUser = await tx.user.update({
+            where: { id: existingUser.id },
+            data: {
+              isEmailVerified: emailVerified ?? true,
+              avatar: existingUser.avatar || avatar,
             },
           });
         }

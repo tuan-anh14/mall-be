@@ -26,11 +26,19 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     done: VerifyCallback,
   ): void {
     const { id, emails, name, photos } = profile;
+    const primaryEmail = emails?.[0] as
+      | { value?: string; verified?: boolean }
+      | undefined;
+    const rawProfile = profile._json as
+      | { email_verified?: boolean }
+      | undefined;
 
     const oauthProfile: OAuthProfile = {
       provider: 'google',
       providerAccountId: id,
-      email: emails?.[0]?.value || '',
+      email: primaryEmail?.value || '',
+      emailVerified:
+        primaryEmail?.verified ?? rawProfile?.email_verified ?? true,
       firstName: name?.givenName || '',
       lastName: name?.familyName || '',
       avatar: photos?.[0]?.value,

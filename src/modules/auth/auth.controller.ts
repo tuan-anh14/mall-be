@@ -44,8 +44,12 @@ import { User } from 'generated/prisma/client';
 export class AuthController {
   private readonly cookieOptions = {
     httpOnly: true,
-    sameSite: 'lax' as const,
-    secure: process.env.NODE_ENV === 'production',
+    sameSite:
+      (process.env.COOKIE_SAME_SITE as 'lax' | 'strict' | 'none') ||
+      (process.env.NODE_ENV === 'production' ? 'none' : 'lax'),
+    secure:
+      process.env.NODE_ENV === 'production' ||
+      process.env.COOKIE_SAME_SITE === 'none',
     maxAge: SESSION_MAX_AGE_MS,
   };
 
@@ -54,6 +58,13 @@ export class AuthController {
     private readonly emailService: EmailService,
     private readonly configService: ConfigService,
   ) {}
+
+  private getOAuthCallbackRedirect(provider: string): string {
+    const frontendUrl = this.configService
+      .get<string>('frontendUrl', 'http://localhost:3000')
+      .replace(/\/$/, '');
+    return `${frontendUrl}/auth/oauth/callback?provider=${encodeURIComponent(provider)}`;
+  }
 
   @Public()
   @Post('register')
@@ -78,9 +89,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Verify email with 6-digit code' })
   @ApiResponse({ status: 200, description: 'Email verified successfully' })
   @ApiBadRequestResponse({ description: 'Invalid or expired code' })
-  async verifyEmail(
-    @Body() dto: VerifyEmailDto,
-  ): Promise<{ message: string }> {
+  async verifyEmail(@Body() dto: VerifyEmailDto): Promise<{ message: string }> {
     await this.authService.verifyEmail(dto);
     return { message: 'Xác thực email thành công' };
   }
@@ -107,7 +116,9 @@ export class AuthController {
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
   async me(@Req() req: Request): Promise<{ user: AuthUserDto }> {
     const user = req.user as User;
-    return { user: await this.authService.buildUserResponseWithRequest(user.id) };
+    return {
+      user: await this.authService.buildUserResponseWithRequest(user.id),
+    };
   }
 
   @Post('logout')
@@ -190,7 +201,7 @@ export class AuthController {
       req,
     );
     res.cookie(SESSION_COOKIE, sessionId, this.cookieOptions);
-    res.redirect(`${this.configService.get<string>('frontendUrl')}/`);
+    res.redirect(this.getOAuthCallbackRedirect('google'));
   }
 
   // ─── GitHub OAuth ───────────────────────────────────────────────────────────
@@ -214,6 +225,6 @@ export class AuthController {
       req,
     );
     res.cookie(SESSION_COOKIE, sessionId, this.cookieOptions);
-    res.redirect(`${this.configService.get<string>('frontendUrl')}/`);
+    res.redirect(this.getOAuthCallbackRedirect('github'));
   }
 }
