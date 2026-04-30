@@ -11,6 +11,8 @@ import { UpdateReturnRequestStatusDto } from './dto/update-return-request.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { WalletService } from '../wallet/wallet.service';
 
+const RETURN_WINDOW_DAYS = 7;
+
 @Injectable()
 export class ReturnRequestsService {
   constructor(
@@ -19,12 +21,32 @@ export class ReturnRequestsService {
     private readonly walletService: WalletService,
   ) { }
 
+  private getDeliveredAt(order: {
+    updatedAt?: Date;
+    trackingSteps?: Array<{ status: string; completedAt: Date | null }>;
+  }) {
+    const deliveredStep = order.trackingSteps?.find(
+      (step) => step.status === 'DELIVERED' && step.completedAt,
+    );
+
+    return deliveredStep?.completedAt ?? order.updatedAt ?? null;
+  }
+
+  private isReturnWindowExpired(deliveredAt: Date) {
+    const expiresAt = new Date(deliveredAt);
+    expiresAt.setDate(expiresAt.getDate() + RETURN_WINDOW_DAYS);
+    return new Date() > expiresAt;
+  }
+
   // ─── Buyer: Create Request ──────────────────────────────────────────────────
 
   async create(userId: string, dto: CreateReturnRequestDto) {
     const order = await this.prisma.order.findUnique({
       where: { id: dto.orderId },
-      include: { items: { include: { product: true } } },
+      include: {
+        items: { include: { product: true } },
+        trackingSteps: true,
+      },
     });
 
     if (!order) throw new NotFoundException('Không tìm thấy đơn hàng');
@@ -32,6 +54,14 @@ export class ReturnRequestsService {
 
     if (order.status !== OrderStatus.DELIVERED) {
       throw new BadRequestException('Chỉ có thể yêu cầu đổi trả cho đơn hàng đã giao thành công');
+    }
+
+    const deliveredAt = this.getDeliveredAt(order);
+    if (!deliveredAt) {
+      throw new BadRequestException('Không xác định được thời điểm giao hàng để tạo yêu cầu đổi trả');
+    }
+    if (this.isReturnWindowExpired(deliveredAt)) {
+      throw new BadRequestException(`Chỉ có thể đổi trả trong vòng ${RETURN_WINDOW_DAYS} ngày sau khi nhận hàng`);
     }
 
     const existingRequest = await this.prisma.returnRequest.findUnique({

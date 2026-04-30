@@ -42,6 +42,23 @@ export class WalletService {
   }
 
   private formatTransaction(t: any) {
+    const fallbackTitle =
+      t.type === WalletTransactionType.REFUND
+        ? 'Hoàn tiền trả hàng'
+        : t.type === WalletTransactionType.PAYMENT
+          ? 'Thanh toán đơn hàng'
+          : t.type === WalletTransactionType.DEPOSIT
+            ? 'Nạp tiền'
+            : t.type === WalletTransactionType.WITHDRAW
+              ? 'Rút tiền'
+              : t.type === WalletTransactionType.SELLER_INCOME
+                ? 'Doanh thu bán hàng'
+                : t.type === WalletTransactionType.SELLER_FEE_DEDUCTED
+                  ? 'Phí sàn'
+                  : t.type === WalletTransactionType.SELLER_REFUND_DEDUCTED
+                    ? 'Khấu trừ hoàn tiền'
+                    : 'Điều chỉnh ví';
+
     return {
       id: t.id,
       type: t.type,
@@ -50,6 +67,7 @@ export class WalletService {
       balanceBefore: Number(t.balanceBefore),
       balanceAfter: Number(t.balanceAfter),
       orderId: t.orderId,
+      title: t.title || fallbackTitle,
       description: t.description,
       gatewayTxnId: t.gatewayTxnId,
       createdAt: t.createdAt,
