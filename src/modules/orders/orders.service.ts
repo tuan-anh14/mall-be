@@ -62,6 +62,22 @@ export class OrdersService {
     return `ORD-${year}-${seq}`;
   }
 
+  private async cancelStalePendingOrderPayments(userId: string) {
+    await this.prisma.pendingOrderPayment.updateMany({
+      where: {
+        userId,
+        status: WalletTransactionStatus.PENDING,
+      },
+      data: {
+        status: WalletTransactionStatus.CANCELLED,
+        gatewayData: {
+          reason: 'Superseded by a newer checkout attempt',
+          cancelledAt: new Date().toISOString(),
+        },
+      },
+    });
+  }
+
   private formatOrder(order: any) {
     const currentStep = order.trackingSteps?.find((s: any) => s.isCurrent);
 
@@ -386,6 +402,8 @@ export class OrdersService {
     let firstOrderId = '';
 
     if (dto.paymentMethod === 'vnpay' && !options?.vnpayPaid) {
+      await this.cancelStalePendingOrderPayments(userId);
+
       const pendingId = 'ORDERPAY-' + Date.now() + Math.floor(Math.random() * 1000);
       await this.prisma.pendingOrderPayment.create({
         data: {
@@ -414,6 +432,10 @@ export class OrdersService {
         },
         paymentUrl,
       };
+    }
+
+    if (!options?.vnpayPaid) {
+      await this.cancelStalePendingOrderPayments(userId);
     }
 
     const createdOrderIds = await this.prisma.$transaction(async (tx) => {
