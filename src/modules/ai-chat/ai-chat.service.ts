@@ -222,7 +222,7 @@ QUY TẮC CỐT LÕI:
 2. ĐỊNH DẠNG: Văn bản thuần túy, phân đoạn bằng \\n. KHÔNG ký tự Markdown (** , * , #), KHÔNG HTML.
 3. CHUYÊN MÔN: Dùng dữ liệu "SẢN PHẨM PHÙ HỢP" để gợi ý. Nếu khách hỏi loại hàng không có trong danh sách, hãy báo là hiện hết hàng hoặc chưa có và gợi ý khách theo dõi thêm.
 4. QUY TRÌNH: Chào hỏi -> Giải đáp -> Gợi ý chốt đơn.
-5. CHÍNH SÁCH: Hủy đơn (PENDING), Đổi trả (7 ngày), Thanh toán (VNPAY, Wallet, COD).
+5. CHÍNH SÁCH: Hủy đơn (PENDING), Trả hàng hoàn tiền (7 ngày), Thanh toán (VNPAY, Wallet, COD).
 `;
 
     const modelWithContext = this.genAI.getGenerativeModel({

@@ -50,24 +50,24 @@ export class ReturnRequestsService {
     });
 
     if (!order) throw new NotFoundException('Không tìm thấy đơn hàng');
-    if (order.userId !== userId) throw new ForbiddenException('Bạn không có quyền yêu cầu đổi trả đơn hàng này');
+    if (order.userId !== userId) throw new ForbiddenException('Bạn không có quyền yêu cầu trả hàng cho đơn hàng này');
 
     if (order.status !== OrderStatus.DELIVERED) {
-      throw new BadRequestException('Chỉ có thể yêu cầu đổi trả cho đơn hàng đã giao thành công');
+      throw new BadRequestException('Chỉ có thể yêu cầu trả hàng cho đơn hàng đã giao thành công');
     }
 
     const deliveredAt = this.getDeliveredAt(order);
     if (!deliveredAt) {
-      throw new BadRequestException('Không xác định được thời điểm giao hàng để tạo yêu cầu đổi trả');
+      throw new BadRequestException('Không xác định được thời điểm giao hàng để tạo yêu cầu trả hàng');
     }
     if (this.isReturnWindowExpired(deliveredAt)) {
-      throw new BadRequestException(`Chỉ có thể đổi trả trong vòng ${RETURN_WINDOW_DAYS} ngày sau khi nhận hàng`);
+      throw new BadRequestException(`Chỉ có thể trả hàng trong vòng ${RETURN_WINDOW_DAYS} ngày sau khi nhận hàng`);
     }
 
     const existingRequest = await this.prisma.returnRequest.findUnique({
       where: { orderId: dto.orderId },
     });
-    if (existingRequest) throw new BadRequestException('Đơn hàng này đã có yêu cầu đổi trả');
+    if (existingRequest) throw new BadRequestException('Đơn hàng này đã có yêu cầu trả hàng');
 
     const request = await this.prisma.$transaction(async (tx) => {
       // Update order status
@@ -103,8 +103,8 @@ export class ReturnRequestsService {
       this.notifications.createNotification({
         userId: sellerUserId,
         type: 'ORDER' as any,
-        title: 'Yêu cầu đổi trả mới',
-        message: `Bạn có yêu cầu đổi trả mới cho đơn hàng ${dto.orderId}`,
+        title: 'Yêu cầu trả hàng mới',
+        message: `Bạn có yêu cầu trả hàng mới cho đơn hàng ${dto.orderId}`,
         actionPage: 'seller-orders',
       }).catch(() => { });
     }
@@ -179,8 +179,8 @@ export class ReturnRequestsService {
     this.notifications.createNotification({
       userId: request.userId,
       type: 'ORDER' as any,
-      title: `Cập nhật yêu cầu đổi trả`,
-      message: `Yêu cầu đổi trả đơn hàng ${request.orderId} đã được chuyển sang trạng thái: ${dto.status}`,
+      title: `Cập nhật yêu cầu trả hàng`,
+      message: `Yêu cầu trả hàng đơn ${request.orderId} đã được chuyển sang trạng thái: ${dto.status}`,
       actionPage: 'orders',
     }).catch(() => { });
 
