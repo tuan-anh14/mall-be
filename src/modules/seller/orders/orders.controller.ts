@@ -61,6 +61,18 @@ export class OrdersController {
     return this.ordersService.updateStatus(user.id, id, dto.status);
   }
 
+  @Put(':id/confirm-cod-payment')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Confirm COD cash received for delivered order' })
+  @ApiParam({ name: 'id', type: String })
+  @ApiResponse({ status: 200, description: 'COD payment confirmed' })
+  confirmCodPayment(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+  ) {
+    return this.ordersService.confirmCodPayment(user.id, id);
+  }
+
   @Put(':id/handle-cancel')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Handle order cancellation request' })

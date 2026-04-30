@@ -85,8 +85,8 @@ export class CreateOrderDto {
   @Type(() => ShippingAddressInputDto)
   shippingAddress?: ShippingAddressInputDto;
 
-  @ApiProperty({ enum: ['card', 'paypal', 'crypto', 'wallet', 'vnpay', 'momo', 'cod'] })
-  @IsIn(['card', 'paypal', 'crypto', 'wallet', 'vnpay', 'momo', 'cod'])
+  @ApiProperty({ enum: ['wallet', 'vnpay', 'cod'] })
+  @IsIn(['wallet', 'vnpay', 'cod'])
   paymentMethod: string;
 
   @ApiPropertyOptional({ description: 'Payment reference or card info' })

@@ -100,6 +100,14 @@ export class PaymentService {
     if (responseCode === '00') status = WalletTransactionStatus.COMPLETED;
     else if (responseCode === '24') status = WalletTransactionStatus.CANCELLED;
 
+    if (txnId.startsWith('ORDERPAY-')) {
+      return this.ordersService.handlePendingOrderPayment(
+        txnId,
+        status,
+        query,
+      );
+    }
+
     if (txnId.startsWith('ORD-')) {
       return this.ordersService.handlePaymentCallback(
         txnId,

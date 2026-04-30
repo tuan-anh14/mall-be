@@ -43,7 +43,7 @@ const TRACKING_STEPS = [
   { status: TrackingStatus.DELIVERED, label: 'Đã giao hàng thành công', sortOrder: 4 },
 ];
 
-const PAID_METHODS = ['wallet', 'vnpay', 'momo'];
+const PAID_METHODS = ['wallet', 'vnpay'];
 
 @Injectable()
 export class OrdersService {
@@ -200,7 +200,11 @@ export class OrdersService {
     return { order: this.formatOrder(order) };
   }
 
-  async createOrder(userId: string, dto: CreateOrderDto) {
+  async createOrder(
+    userId: string,
+    dto: CreateOrderDto,
+    options?: { vnpayPaid?: boolean; paymentRef?: string },
+  ) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -361,8 +365,9 @@ export class OrdersService {
     if (dto.paymentMethod === 'wallet') {
       initialStatus = OrderStatus.CONFIRMED;
       isPaidOnline = true;
-    } else if (dto.paymentMethod === 'vnpay' || dto.paymentMethod === 'card') {
-      initialStatus = OrderStatus.PENDING;
+    } else if (dto.paymentMethod === 'vnpay') {
+      initialStatus = options?.vnpayPaid ? OrderStatus.CONFIRMED : OrderStatus.PENDING;
+      isPaidOnline = Boolean(options?.vnpayPaid);
     }
 
     const shippingCost = subtotal >= FREE_SHIPPING_THRESHOLD ? 0 : DEFAULT_SHIPPING_COST;
@@ -379,6 +384,37 @@ export class OrdersService {
 
     const paymentGroupId = 'ORD-' + Date.now() + Math.floor(Math.random() * 1000);
     let firstOrderId = '';
+
+    if (dto.paymentMethod === 'vnpay' && !options?.vnpayPaid) {
+      const pendingId = 'ORDERPAY-' + Date.now() + Math.floor(Math.random() * 1000);
+      await this.prisma.pendingOrderPayment.create({
+        data: {
+          id: pendingId,
+          userId,
+          amount: total,
+          checkoutData: dto as any,
+        },
+      });
+
+      const paymentUrl = await this.paymentService.createVnpayUrl(
+        pendingId,
+        total,
+        '127.0.0.1',
+        dto.returnUrl,
+      );
+
+      return {
+        order: {
+          id: pendingId,
+          date: new Date(),
+          status: 'PENDING_PAYMENT',
+          total,
+          items: [],
+          tracking: { current: 'PENDING_PAYMENT', steps: [] },
+        },
+        paymentUrl,
+      };
+    }
 
     const createdOrderIds = await this.prisma.$transaction(async (tx) => {
       const ids: string[] = [];
@@ -416,7 +452,8 @@ export class OrdersService {
             couponCode: coupon?.code ?? null,
             couponDiscount: sellerCoupon > 0 ? sellerCoupon : null,
             paymentMethod: dto.paymentMethod,
-            paymentRef: dto.paymentRef ?? null,
+            paymentRef: options?.paymentRef ?? dto.paymentRef ?? null,
+            revenueStatus: isPaidOnline ? 'PENDING' : 'UNPAID',
             addressId: dto.addressId ?? null,
             shippingFirstName: shipping.firstName,
             shippingLastName: shipping.lastName,
@@ -492,7 +529,7 @@ export class OrdersService {
     });
 
     let paymentUrl: string | undefined;
-    if (dto.paymentMethod === 'vnpay') {
+    if (dto.paymentMethod === 'vnpay' && !options?.vnpayPaid) {
       const vnpayResult = await this.paymentService.createVnpayUrl(
         paymentGroupId, // Use paymentGroupId for VNPay
         total,
@@ -630,6 +667,51 @@ export class OrdersService {
     });
 
     return { message: 'Đơn hàng đã được hủy' };
+  }
+
+  async handlePendingOrderPayment(
+    pendingPaymentId: string,
+    status: WalletTransactionStatus,
+    gatewayData?: any,
+  ) {
+    const pending = await this.prisma.pendingOrderPayment.findUnique({
+      where: { id: pendingPaymentId },
+    });
+
+    if (!pending) return { message: 'Pending payment not found' };
+    if (pending.status !== WalletTransactionStatus.PENDING) {
+      return { message: 'Payment already processed', orderId: pending.orderId };
+    }
+
+    if (status !== WalletTransactionStatus.COMPLETED) {
+      await this.prisma.pendingOrderPayment.update({
+        where: { id: pendingPaymentId },
+        data: { status, gatewayData },
+      });
+      return { success: true, pendingPaymentId, status };
+    }
+
+    const checkoutData = pending.checkoutData as unknown as CreateOrderDto;
+    const result = await this.createOrder(pending.userId, checkoutData, {
+      vnpayPaid: true,
+      paymentRef: gatewayData?.vnp_TransactionNo ?? null,
+    });
+
+    await this.prisma.pendingOrderPayment.update({
+      where: { id: pendingPaymentId },
+      data: {
+        status: WalletTransactionStatus.COMPLETED,
+        orderId: result.order.id,
+        gatewayData,
+      },
+    });
+
+    return {
+      success: true,
+      pendingPaymentId,
+      status,
+      orderId: result.order.id,
+    };
   }
 
   private async restoreStockAndCart(tx: any, order: any, userId: string) {

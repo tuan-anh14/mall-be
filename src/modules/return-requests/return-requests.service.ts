@@ -198,19 +198,19 @@ export class ReturnRequestsService {
       // 2. Update Order
       await tx.order.update({
         where: { id: request.orderId },
-        data: { status: OrderStatus.REFUNDED },
+        data: { status: OrderStatus.REFUNDED, revenueStatus: 'REFUNDED' },
       });
+
+      await this.walletService.refundToWallet(
+        request.userId,
+        request.orderId,
+        refundValue,
+        tx,
+        userId,
+      );
 
       return updatedReq;
     });
-
-    // 3. Process actual refund to wallet (ONLY from this seller)
-    await this.walletService.refundToWallet(
-      request.userId,
-      request.orderId,
-      refundValue,
-      userId,
-    );
 
     // Notify Buyer
     this.notifications.createNotification({

@@ -201,6 +201,14 @@ export class OrdersService {
     const dbStatus = STATUS_UPDATE_MAP[status];
     if (!dbStatus) throw new BadRequestException(`Invalid status: ${status}`);
 
+    if (
+      order.paymentMethod === 'vnpay' &&
+      !order.isPaidOnline &&
+      order.status === OrderStatus.PENDING
+    ) {
+      throw new BadRequestException('Đơn VNPAY chưa thanh toán, không thể xử lý giao hàng');
+    }
+
     const currentSortOrder = TRACKING_SORT_ORDER[dbStatus] ?? 0;
     const currentTrackingStatus = ORDER_STATUS_TO_TRACKING[dbStatus];
     const now = new Date();
@@ -210,7 +218,6 @@ export class OrdersService {
         where: { id: order.id },
         data: {
           status: dbStatus,
-          revenueStatus: dbStatus === OrderStatus.DELIVERED ? 'RELEASED' : order.revenueStatus,
         },
       });
 
@@ -231,8 +238,23 @@ export class OrdersService {
     });
 
     if (dbStatus === OrderStatus.DELIVERED) {
+      if (order.paymentMethod === 'cod') {
+        return {
+          success: true,
+          order: {
+            id: order.id,
+            status: STATUS_DISPLAY_MAP[OrderStatus.DELIVERED] ?? OrderStatus.DELIVERED,
+            updatedAt: new Date(),
+          },
+        };
+      }
+
       try {
         await this.walletService.processOrderPayout(order.id, userId);
+        await this.prisma.order.update({
+          where: { id: order.id },
+          data: { revenueStatus: 'RELEASED' },
+        });
       } catch (error) {
         console.error(`Failed to process payout for order ${order.id}:`, error);
       }
@@ -251,6 +273,33 @@ export class OrdersService {
         updatedAt: updated.updatedAt,
       },
     };
+  }
+
+  async confirmCodPayment(userId: string, orderId: string) {
+    const profile = await this.getSellerProfile(userId);
+    const order = await this.prisma.order.findFirst({
+      where: {
+        id: orderId,
+        sellerId: profile.id,
+        status: OrderStatus.DELIVERED,
+        paymentMethod: 'cod',
+      },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Đơn COD đã giao không tồn tại hoặc không thuộc shop của bạn');
+    }
+    if (order.revenueStatus === 'RELEASED') {
+      return { success: true, message: 'Đơn COD đã được ghi nhận tiền trước đó' };
+    }
+
+    await this.walletService.processOrderPayout(order.id, userId);
+    await this.prisma.order.update({
+      where: { id: order.id },
+      data: { revenueStatus: 'RELEASED' },
+    });
+
+    return { success: true, message: 'Đã xác nhận nhận tiền COD và cộng doanh thu vào ví shop' };
   }
 
   async handleCancelRequest(
@@ -278,7 +327,7 @@ export class OrdersService {
       return { success: true, message: 'Đã từ chối yêu cầu hủy' };
     }
 
-    const PAID_METHODS = ['wallet', 'vnpay', 'momo'];
+    const PAID_METHODS = ['wallet', 'vnpay'];
     const isPaid = PAID_METHODS.includes(order.paymentMethod);
 
     await this.prisma.$transaction(async (tx) => {

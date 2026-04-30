@@ -60,7 +60,6 @@ export class NotificationsService {
 
     const totalPages = Math.ceil(total / limit);
 
-    console.log(`[API] getNotifications for user ${userId}: unreadCount=${unreadCount}, unreadMessageCount=${unreadMessageCount}`);
     return {
       notifications,
       total,

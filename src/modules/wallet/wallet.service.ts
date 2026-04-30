@@ -264,16 +264,17 @@ export class WalletService {
     sellerUserId?: string,
   ) {
     const prisma = txClient || this.prisma;
-    const buyerWallet = await this.prisma.wallet.findUniqueOrThrow({ where: { userId } });
+    const buyerWallet = await prisma.wallet.findUniqueOrThrow({ where: { userId } });
     const buyerBalance = Number(buyerWallet.balance);
     const buyerNewBalance = buyerBalance + amount;
 
     // Find if seller already received income (for DELIVERED orders)
-    const incomeTransactions = await this.prisma.walletTransaction.findMany({
+    const incomeTransactions = await prisma.walletTransaction.findMany({
       where: {
         orderId,
         type: WalletTransactionType.SELLER_INCOME,
         status: WalletTransactionStatus.COMPLETED,
+        ...(sellerUserId ? { wallet: { userId: sellerUserId } } : {}),
       },
       include: { wallet: true },
     });
