@@ -14,7 +14,7 @@ export class RecommendationsService {
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
     private readonly viewHistoryService: ViewHistoryService,
-  ) {}
+  ) { }
 
   private formatProduct(p: any) {
     const allImages: string[] = (p.images ?? [])
@@ -43,11 +43,11 @@ export class RecommendationsService {
       images: allImages,
       seller: p.seller
         ? {
-            id: p.seller.id,
-            storeName: p.seller.storeName,
-            storeSlug: p.seller.storeSlug,
-            userId: p.seller.userId,
-          }
+          id: p.seller.id,
+          storeName: p.seller.storeName,
+          storeSlug: p.seller.storeSlug,
+          userId: p.seller.userId,
+        }
         : null,
     };
   }
@@ -59,21 +59,26 @@ export class RecommendationsService {
   private async callAiService(
     endpoint: string,
     body: Record<string, unknown>,
-  ): Promise<string[] | null> {
+  ): Promise<{ productIds: string[]; isPersonalized: boolean } | null> {
     const aiUrl =
       this.configService.get<string>('AI_SERVICE_URL') ||
       'http://localhost:8001';
     try {
       const response = await firstValueFrom(
-        this.httpService.post<{ productIds: string[] }>(
+        this.httpService.post<{ productIds: string[]; isPersonalized?: boolean }>(
           `${aiUrl}${endpoint}`,
           body,
-          {
-            timeout: 3000,
-          },
+          { timeout: 3000 },
         ),
       );
-      return response.data?.productIds ?? null;
+      const productIds = response.data?.productIds;
+      if (!productIds) return null;
+      return {
+        productIds,
+        // mall-ai trả isPersonalized=true chỉ khi dùng SVD thật sự
+        // isPersonalized=false = user mới / fallback popularity
+        isPersonalized: response.data?.isPersonalized ?? false,
+      };
     } catch {
       // AI service unavailable — silently fall back
       return null;
@@ -177,14 +182,11 @@ export class RecommendationsService {
     const viewedIds = history.map((h) => h.productId);
 
     // Try AI service first (Cấp 2)
-    const aiProductIds = await this.callAiService('/recommend', {
-      userId,
-      limit,
-    });
+    const aiResult = await this.callAiService('/recommend', { userId, limit });
 
-    if (aiProductIds && aiProductIds.length > 0) {
+    if (aiResult && aiResult.productIds.length > 0) {
       const products = await this.prisma.product.findMany({
-        where: { id: { in: aiProductIds }, status: 'ACTIVE' },
+        where: { id: { in: aiResult.productIds }, status: 'ACTIVE' },
         include: {
           images: { orderBy: { isPrimary: 'desc' } },
           category: { select: { id: true, name: true } },
@@ -201,36 +203,44 @@ export class RecommendationsService {
 
       // Preserve AI ordering
       const productMap = new Map(products.map((p) => [p.id, p]));
-      const ordered = aiProductIds
+      const ordered = aiResult.productIds
         .map((id) => productMap.get(id))
         .filter(Boolean)
         .map((p) => this.formatProduct(p));
 
       if (ordered.length >= limit / 2) {
-        return { products: ordered, source: 'ai' };
+        return {
+          products: ordered,
+          source: 'ai' as const,
+          // Forward flag từ mall-ai: true=cá nhân hóa thật, false=popularity fallback
+          isPersonalized: aiResult.isPersonalized,
+        };
       }
     }
 
-    // Fallback: Cấp 1 built-in
+    // Fallback: Cấp 1 built-in (view history based)
+    // built-in luôn dựa trên view history → có thể coi là personalized nếu có history
+    const hasHistory = history.length > 0;
     const products = await this.builtInRecommendations(
       userId,
       viewedIds,
       limit,
     );
-    return { products, source: 'builtin' };
+    return {
+      products,
+      source: 'builtin' as const,
+      isPersonalized: hasHistory, // true nếu có view history, false nếu user mới
+    };
   }
 
   async getSimilarProducts(productId: string, userId: string, limit: number) {
     // Try AI service first
-    const aiProductIds = await this.callAiService('/similar', {
-      productId,
-      limit,
-    });
+    const aiResult = await this.callAiService('/similar', { productId, limit });
 
-    if (aiProductIds && aiProductIds.length > 0) {
+    if (aiResult && aiResult.productIds.length > 0) {
       const products = await this.prisma.product.findMany({
         where: {
-          id: { in: aiProductIds },
+          id: { in: aiResult.productIds },
           status: 'ACTIVE',
         },
         include: {
@@ -247,7 +257,7 @@ export class RecommendationsService {
         },
       });
       const productMap = new Map(products.map((p) => [p.id, p]));
-      const ordered = aiProductIds
+      const ordered = aiResult.productIds
         .filter((id) => id !== productId)
         .map((id) => productMap.get(id))
         .filter(Boolean)
