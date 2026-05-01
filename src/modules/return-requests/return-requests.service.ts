@@ -38,6 +38,17 @@ export class ReturnRequestsService {
     return new Date() > expiresAt;
   }
 
+  private getDefaultRefundAmount(order: {
+    subtotal: any;
+    tax: any;
+    couponDiscount: any;
+  }) {
+    const subtotal = Number(order.subtotal || 0);
+    const tax = Number(order.tax || 0);
+    const couponDiscount = Number(order.couponDiscount || 0);
+    return Math.max(0, subtotal - couponDiscount + tax);
+  }
+
   // ─── Buyer: Create Request ──────────────────────────────────────────────────
 
   async create(userId: string, dto: CreateReturnRequestDto) {
@@ -216,7 +227,8 @@ export class ReturnRequestsService {
       (acc, item) => acc + Number(item.price) * item.quantity,
       0,
     );
-    const refundValue = Number(request.refundAmount || sellerItemsTotal);
+    const defaultRefundAmount = this.getDefaultRefundAmount(request.order);
+    const refundValue = Number(request.refundAmount ?? defaultRefundAmount ?? sellerItemsTotal);
 
     const result = await this.prisma.$transaction(async (tx) => {
       // 1. Update Request

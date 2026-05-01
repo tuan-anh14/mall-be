@@ -298,6 +298,7 @@ export class WalletService {
     });
 
     const totalIncome = incomeTransactions.reduce((acc, t) => acc + Number(t.amount), 0);
+    const sellerRefundPool = Math.min(amount, totalIncome);
 
     const executeRefund = async (tx: any) => {
       // 1. Credit Buyer
@@ -326,7 +327,7 @@ export class WalletService {
           const sellerWallet = incomeTx.wallet;
           const sellerBalance = Number(sellerWallet.balance);
           const sellerShare = totalIncome > 0 ? (Number(incomeTx.amount) / totalIncome) : 1;
-          const deductionAmount = amount * sellerShare;
+          const deductionAmount = sellerRefundPool * sellerShare;
           const sellerNewBalance = sellerBalance - deductionAmount;
 
           await tx.wallet.update({
@@ -617,9 +618,9 @@ export class WalletService {
     });
     if (existingPayout) return; // Already processed for this seller (or global)
 
-    const orderTotal = Number(order.total);
     const orderSubtotal = Number(order.subtotal);
     const orderDiscount = Number(order.couponDiscount || 0);
+    const orderTax = Number(order.tax || 0);
 
     // 3. Group by seller
     const sellerMap = new Map<string, { userId: string; gross: number }>();
@@ -647,12 +648,15 @@ export class WalletService {
         const currentWallet = await tx.wallet.findUniqueOrThrow({ where: { userId: data.userId } });
         const balanceBefore = Number(currentWallet.balance);
 
-        // Actual Revenue for this seller (proportional discount)
+        // Revenue is based on merchandise after discount plus the seller's VAT share.
+        // Platform fee is charged only on merchandise revenue, not on VAT.
         const sellerShare = data.gross / orderSubtotal;
         const sellerDiscount = orderDiscount * sellerShare;
-        const revenueThucTe = data.gross - sellerDiscount;
+        const sellerTax = orderTax * sellerShare;
+        const merchandiseRevenue = data.gross - sellerDiscount;
+        const revenueThucTe = merchandiseRevenue + sellerTax;
 
-        const phiSan = revenueThucTe * 0.05;
+        const phiSan = merchandiseRevenue * 0.05;
         const netIncome = revenueThucTe - phiSan;
 
         const balanceAfterIncome = balanceBefore + revenueThucTe;
