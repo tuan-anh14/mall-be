@@ -39,14 +39,9 @@ export class ReturnRequestsService {
   }
 
   private getDefaultRefundAmount(order: {
-    subtotal: any;
-    tax: any;
-    couponDiscount: any;
+    total: any;
   }) {
-    const subtotal = Number(order.subtotal || 0);
-    const tax = Number(order.tax || 0);
-    const couponDiscount = Number(order.couponDiscount || 0);
-    return Math.max(0, subtotal - couponDiscount + tax);
+    return Number(order.total || 0);
   }
 
   // ─── Buyer: Create Request ──────────────────────────────────────────────────

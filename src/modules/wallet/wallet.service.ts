@@ -57,7 +57,9 @@ export class WalletService {
                   ? 'Phí sàn'
                   : t.type === WalletTransactionType.SELLER_REFUND_DEDUCTED
                     ? 'Khấu trừ hoàn tiền'
-                    : 'Điều chỉnh ví';
+                    : t.description?.includes('Hoàn phí sàn')
+                      ? 'Hoàn phí sàn'
+                      : 'Điều chỉnh ví';
 
     return {
       id: t.id,
@@ -328,13 +330,33 @@ export class WalletService {
           const sellerBalance = Number(sellerWallet.balance);
           const sellerShare = totalIncome > 0 ? (Number(incomeTx.amount) / totalIncome) : 1;
           const deductionAmount = sellerRefundPool * sellerShare;
-          const sellerNewBalance = sellerBalance - deductionAmount;
+
+          // Tìm phí sàn đã thu từ seller này cho đơn hàng này để hoàn lại
+          const feeTx = await prisma.walletTransaction.findFirst({
+            where: {
+              orderId,
+              walletId: sellerWallet.id,
+              type: WalletTransactionType.SELLER_FEE_DEDUCTED,
+              status: WalletTransactionStatus.COMPLETED,
+            }
+          });
+
+          const feeRefundAmount = feeTx ? (Number(feeTx.amount) * (deductionAmount / Number(incomeTx.amount))) : 0;
+          const finalSellerDeduction = deductionAmount - feeRefundAmount;
+          const sellerNewBalance = sellerBalance - finalSellerDeduction;
+
+          if (sellerNewBalance < 0) {
+            throw new BadRequestException(
+              `Ví Shop không đủ tiền để hoàn trả (Cần trừ: ${finalSellerDeduction.toLocaleString('vi-VN')} ₫, Hiện có: ${sellerBalance.toLocaleString('vi-VN')} ₫). Vui lòng nạp thêm tiền vào ví.`,
+            );
+          }
 
           await tx.wallet.update({
             where: { id: sellerWallet.id },
             data: { balance: sellerNewBalance },
           });
 
+          // 1. Ghi nhận giao dịch trừ tiền hàng từ Seller
           await tx.walletTransaction.create({
             data: {
               walletId: sellerWallet.id,
@@ -342,11 +364,27 @@ export class WalletService {
               status: WalletTransactionStatus.COMPLETED,
               amount: deductionAmount,
               balanceBefore: sellerBalance,
-              balanceAfter: sellerNewBalance,
+              balanceAfter: sellerBalance - deductionAmount,
               orderId,
-              description: `Truy thu tiền hoàn trả cho đơn hàng đã giao ${orderId}`,
+              description: `Truy thu tiền hoàn trả đơn hàng ${orderId}`,
             },
           });
+
+          // 2. Ghi nhận giao dịch hoàn lại phí sàn cho Seller (nếu có)
+          if (feeRefundAmount > 0) {
+            await tx.walletTransaction.create({
+              data: {
+                walletId: sellerWallet.id,
+                type: WalletTransactionType.ADJUSTMENT,
+                status: WalletTransactionStatus.COMPLETED,
+                amount: feeRefundAmount,
+                balanceBefore: sellerBalance - deductionAmount,
+                balanceAfter: sellerNewBalance,
+                orderId,
+                description: `Hoàn phí sàn cho đơn hàng hoàn trả ${orderId}`,
+              },
+            });
+          }
         }
       } else {
         // Case: Pre-delivery cancellation. 
