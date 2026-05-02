@@ -88,6 +88,8 @@ export class ProductsService {
       status: product.status,
       featured: product.featured,
       trending: product.trending,
+      isApproved: product.isApproved,
+      rejectionReason: product.rejectionReason,
       ratingAverage: product.ratingAverage,
       reviewCount: product.reviewCount,
       images: (product.images ?? []).map((img: any) => ({
@@ -174,6 +176,7 @@ export class ProductsService {
             brand: dto.brand,
             featured: dto.featured ?? false,
             trending: dto.trending ?? false,
+            isApproved: false,
             status: profile.isSuspended 
               ? ProductStatus.INACTIVE 
               : (dto.stock === 0 ? ProductStatus.OUT_OF_STOCK : ProductStatus.ACTIVE),
@@ -257,6 +260,10 @@ export class ProductsService {
           }
           data.status = dto.status;
         }
+
+        // Tự động gỡ duyệt khi Seller sửa bài
+        data.isApproved = false;
+        data.rejectionReason = null;
 
         // Auto-compute discount when price fields change
         const finalPrice = dto.price ?? Number(existing.price);

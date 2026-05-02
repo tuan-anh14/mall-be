@@ -681,8 +681,12 @@ export class AdminService {
     if (sellerId && sellerId !== 'all') {
       where.seller = { userId: sellerId };
     }
-    if (status && status !== 'all' && Object.values(ProductStatus).includes(status as any)) {
-      where.status = status as ProductStatus;
+    if (status && status !== 'all') {
+      if (status === 'PENDING_APPROVAL') {
+        where.isApproved = false;
+      } else if (Object.values(ProductStatus).includes(status as any)) {
+        where.status = status as ProductStatus;
+      }
     }
 
     const [products, total] = await Promise.all([
@@ -741,6 +745,24 @@ export class AdminService {
     }
 
     return { message: `Đã xóa sản phẩm: ${product.name}` };
+  }
+
+  async approveProduct(id: string, adminId: string) {
+    const product = await this.prisma.product.update({
+      where: { id },
+      data: { isApproved: true, rejectionReason: null },
+    });
+    await this.logAction(adminId, 'APPROVE', 'product', id);
+    return product;
+  }
+
+  async rejectProduct(id: string, reason: string, adminId: string) {
+    const product = await this.prisma.product.update({
+      where: { id },
+      data: { isApproved: false, rejectionReason: reason },
+    });
+    await this.logAction(adminId, 'REJECT', 'product', id, { reason });
+    return product;
   }
 
   async retrainModerationModel(): Promise<{ success: boolean; message: string }> {

@@ -285,6 +285,24 @@ export class AdminController {
     return result;
   }
 
+  @Patch('products/:id/approve')
+  @ApiOperation({ summary: 'Approve a product' })
+  async approveProduct(@Req() req: Request, @Param('id') id: string) {
+    const admin = req.user as User;
+    return this.adminService.approveProduct(id, admin.id);
+  }
+
+  @Patch('products/:id/reject')
+  @ApiOperation({ summary: 'Reject a product with reason' })
+  async rejectProduct(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body('reason') reason: string,
+  ) {
+    const admin = req.user as User;
+    return this.adminService.rejectProduct(id, reason, admin.id);
+  }
+
   // ─── MODERATION ────────────────────────────────────────────────────────────
 
   @Post('moderation/retrain')

@@ -151,7 +151,7 @@ export class ProductsService {
     } = query;
     const skip = (page - 1) * limit;
 
-    const where: any = { status: ProductStatus.ACTIVE };
+    const where: any = { status: ProductStatus.ACTIVE, isApproved: true };
 
     if (category) {
       const cats = category
@@ -260,7 +260,7 @@ export class ProductsService {
 
   async findById(id: string) {
     const product = await this.prisma.product.findFirst({
-      where: { id, status: ProductStatus.ACTIVE },
+      where: { id, status: ProductStatus.ACTIVE, isApproved: true },
       include: PRODUCT_INCLUDE,
     });
 
@@ -286,6 +286,7 @@ export class ProductsService {
       where: {
         id: { not: id },
         status: ProductStatus.ACTIVE,
+        isApproved: true,
         OR: [
           { categoryId: product.categoryId },
           ...(product.brand ? [{ brand: product.brand }] : []),
@@ -310,14 +311,14 @@ export class ProductsService {
     if (!sellerProfile) throw new NotFoundException('Seller not found');
 
     const products = await this.prisma.product.findMany({
-      where: { sellerId: sellerProfile.id, status: ProductStatus.ACTIVE },
+      where: { sellerId: sellerProfile.id, status: ProductStatus.ACTIVE, isApproved: true },
       include: PRODUCT_INCLUDE,
       orderBy: { createdAt: 'desc' },
       take: 20,
     });
 
     const totalProducts = await this.prisma.product.count({
-      where: { sellerId: sellerProfile.id, status: ProductStatus.ACTIVE },
+      where: { sellerId: sellerProfile.id, status: ProductStatus.ACTIVE, isApproved: true },
     });
 
     return {
