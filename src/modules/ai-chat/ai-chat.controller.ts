@@ -35,9 +35,17 @@ export class AiChatController {
          }
       }
       res.end();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Stream SSE Controller Error: ", error);
-      res.write(`data: ${JSON.stringify({ text: "Hệ thống AI đang bảo trì." })}\n\n`);
+      
+      let errorMessage = "Hệ thống AI đang gặp sự cố nhỏ.";
+      if (error?.status === 429 || error?.message?.includes('429')) {
+        errorMessage = "Bạn đã hết lượt dùng thử AI miễn phí trong ngày hôm nay. Vui lòng quay lại sau hoặc nâng cấp API Key!";
+      } else if (error?.message?.includes('API_KEY_INVALID')) {
+        errorMessage = "Cấu hình AI chưa đúng (API Key sai). Vui lòng liên hệ Admin.";
+      }
+
+      res.write(`data: ${JSON.stringify({ text: errorMessage })}\n\n`);
       res.end();
     }
   }

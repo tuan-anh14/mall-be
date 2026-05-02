@@ -118,20 +118,42 @@ export class AiChatService implements OnModuleInit {
     const isDiscountQuery = !!query.match(/(giảm giá|khuyến mãi|sale|rẻ|hời|discount|ưu đãi)/);
     const isTrendingQuery = !!query.match(/(hot|trend|nổi bật|bán chạy|featured)/);
 
-    // Semantic Expansion (Synonyms)
+    // Semantic Expansion (Synonyms) - PHIÊN BẢN FULL CHUẨN THEO DỮ LIỆU THẬT
     const synonyms: Record<string, string[]> = {
-      'thời trang': ['quần', 'áo', 'váy', 'đầm', 'set bộ', 'nỉ', 'len'],
-      'quần áo': ['thời trang', 'váy', 'đầm', 'áo', 'quần'],
-      'vga': ['card màn hình', 'nvidia', 'rtx', 'gtx', 'amd', 'gigabyte', 'msi', 'asus'],
-      'laptop': ['máy tính xách tay', 'acer', 'msi', 'lenovo', 'macbook'],
-      'điện máy': ['nồi cơm', 'bếp', 'máy lọc nước', 'điều hòa', 'sunhouse'],
-      'gia dụng': ['nồi', 'chảo', 'máy ép', 'máy lọc'],
-      'linh kiện': ['vga', 'ram', 'cpu', 'psu', 'mainboard', 'ổ cứng'],
-      'bóng đá': ['football', 'bóng', 'áo đấu']
+      // Nhóm Gaming & Tin học
+      'laptop': ['máy tính xách tay', 'acer', 'msi', 'lenovo', 'techbook', 'máy tính', 'nitro', 'katana'],
+      'pc': ['máy tính để bàn', 'máy tính', 'thùng máy', 'case', 'workstation', 'gaming', 'ttg', 'mini pc', 'cấu hình'],
+      'vga': ['card màn hình', 'card đồ họa', 'nvidia', 'rtx', 'gtx', 'amd', 'gigabyte', 'msi', 'asus', 'zotac', 'ocpc', 'inno3d'],
+      'linh kiện': ['vga', 'ram', 'cpu', 'psu', 'mainboard', 'ổ cứng', 'ssd', 'hdd', 'nguồn', 'vỏ case', 'tản nhiệt'],
+      'máy tính': ['laptop', 'pc', 'máy tính xách tay', 'máy tính để bàn', 'máy tính gaming'],
+      
+      // Nhóm Đồ gia dụng & Điện máy (Sunhouse, Karofi)
+      'gia dụng': ['nồi', 'chảo', 'máy ép', 'máy lọc', 'đồ dùng nhà bếp', 'nồi cơm', 'bếp từ', 'bếp điện', 'sunhouse', 'karofi'],
+      'điện máy': ['máy lọc nước', 'điều hòa', 'máy làm mát', 'quạt', 'điện lạnh', 'lọc nước ro'],
+      'nhà bếp': ['chảo', 'nồi cơm', 'bếp đôi', 'máy ép chậm', 'chống dính'],
+
+      // Nhóm Thời trang & Phụ kiện (Cardina, StreetStyle...)
+      'thời trang': ['quần', 'áo', 'váy', 'đầm', 'set bộ', 'nỉ', 'len', 'quần áo', 'cardina', 'thu đông', 'giữ nhiệt'],
+      'phụ kiện': ['đồng hồ', 'kính mát', 'túi xách', 'ví da', 'vòng tay', 'trang sức'],
+      'giày dép': ['giày thể thao', 'sneaker', 'giày thiết kế', 'streetstyle'],
+      
+      // Nhóm Công nghệ & Giải trí
+      'âm thanh': ['tai nghe', 'headphone', 'earbuds', 'loa', 'audiopro', 'soundwave'],
+      'chơi game': ['tay cầm', 'gamepad', 'controller', 'gamemaster', 'ps5', 'xbox'],
+      'nhiếp ảnh': ['máy ảnh', 'camera', 'mirrorless', 'ống kính', 'photopro'],
+
+      // Nhóm Thể thao & Sức khỏe
+      'thể thao': ['ghế tập bụng', 'xà đơn', 'xà kép', 'gym', 'dụng cụ tập', 'goodfit', 'miking'],
+      'gym': ['tập bụng', 'hít xà', 'thể hình', 'săn chắc'],
+
+      // Nhóm Sách & Decor & Khác
+      'sách': ['giáo trình', 'tài liệu', 'triết học', 'bookstore', 'học tập', 'văn phòng phẩm'],
+      'nội thất': ['ghế thư giãn', 'bàn làm việc', 'decor', 'trang trí', 'cây cảnh', 'greenspace']
     };
 
     let expandedKeywords = query.split(' ').filter(k => k.length >= 2);
     Object.entries(synonyms).forEach(([key, values]) => {
+      // Nếu query chứa key hoặc bất kỳ từ đồng nghĩa nào
       if (query.includes(key) || values.some(v => query.includes(v))) {
         expandedKeywords = [...new Set([...expandedKeywords, key, ...values])];
       }
@@ -139,12 +161,19 @@ export class AiChatService implements OnModuleInit {
 
     const scoredProducts = this.productsCache.map(p => {
       let score = 0;
-      const searchableStr = `${p.name} ${p.brand} ${p.description}`.toLowerCase();
+      const productName = p.name.toLowerCase();
+      const productBrand = p.brand.toLowerCase();
+      const productDesc = (p.description || '').toLowerCase();
+      const searchableStr = `${productName} ${productBrand} ${productDesc}`.toLowerCase();
 
+      // 1. Phân tích cụm từ (Phrase Matching) - Ưu tiên cao nhất
+      if (query.length > 3 && searchableStr.includes(query)) score += 12; 
+      
+      // 2. Phân tích từ khóa mở rộng
       expandedKeywords.forEach(k => {
-        if (searchableStr.includes(k)) score += 2;
-        if (p.name.toLowerCase().includes(k)) score += 3;
-        if (p.brand.toLowerCase() === k) score += 5;
+        if (productName.includes(k)) score += 5; 
+        if (productBrand === k) score += 4;
+        if (productDesc.includes(k)) score += 2;
       });
 
       // Attribute Boosting
@@ -193,21 +222,46 @@ export class AiChatService implements OnModuleInit {
       throw new Error('History is required');
     }
 
-    // Identify last user message
-    const lastMessage = history[history.length - 1];
+    // Identify last user message and scan history for context if needed
     let userQuery = '';
-    if (lastMessage && lastMessage.role === 'user') {
-      userQuery = lastMessage.parts.map(p => p.text).join(' ');
+    let contextQuery = ''; 
+
+    try {
+      // Quét lịch sử một cách an toàn
+      const userMessages = (history || [])
+        .filter(h => h.role === 'user')
+        .slice(-3) 
+        .map(h => {
+          if (!h.parts) return '';
+          return h.parts
+            .map(p => (p as any).text || '') // Kiểm tra an toàn cho text
+            .filter(t => t.length > 0)
+            .join(' ');
+        })
+        .filter(msg => msg.length > 0);
+      
+      userQuery = userMessages[userMessages.length - 1] || '';
+      
+      // Nếu tin nhắn cuối quá ngắn hoặc mang tính tiếp nối, dùng contextQuery từ các tin nhắn trước
+      const isContinuation = !!userQuery.toLowerCase().match(/(tiếp|nữa|thêm|đi|rồi sao|nói đi|kể đi|đâu|nào)/);
+      if (isContinuation || (userQuery.length > 0 && userQuery.length < 10)) {
+        contextQuery = userMessages.join(' ');
+      } else {
+        contextQuery = userQuery;
+      }
+    } catch (historyError) {
+      this.logger.error('Error processing chat history context:', historyError);
+      contextQuery = ''; // Fallback về rỗng nếu lỗi
     }
 
     // Prepare Context Injection - Optimize: Parallel execution to reduce TTFT
     const currentDateTime = new Date().toLocaleString('vi-VN');
-    const needsCoupons = !!userQuery.toLowerCase().match(/(giảm giá|khuyến mãi|coupon|mã|voucher)/);
-    const isGreeting = userQuery.length < 5 || !!userQuery.toLowerCase().match(/^(hi|hello|chào|xin chào|hey|đây)$/);
+    const needsCoupons = !!contextQuery.toLowerCase().match(/(giảm giá|khuyến mãi|coupon|mã|voucher)/);
+    const isGreeting = userQuery.length < 5 && !!userQuery.toLowerCase().match(/^(hi|hello|chào|xin chào|hey|đây)$/);
 
     const [activeCouponsStr, filteredProductsStr] = await Promise.all([
       needsCoupons ? this.fetchActiveCoupons() : Promise.resolve('Chỉ cung cấp khi khách hỏi về khuyến mãi.'),
-      isGreeting ? Promise.resolve('Khách chỉ đang chào hỏi.') : Promise.resolve(this.preFilterProducts(userQuery))
+      isGreeting ? Promise.resolve('Khách chỉ đang chào hỏi.') : Promise.resolve(this.preFilterProducts(contextQuery))
     ]);
 
     const systemInstruction = `
