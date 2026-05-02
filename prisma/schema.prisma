@@ -5,7 +5,7 @@
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client"
   output   = "../generated/prisma"
 }
 
@@ -264,23 +264,23 @@ model Category {
 }
 
 model Product {
-  id            String        @id @default(cuid())
-  sellerId      String
-  categoryId    String
-  name          String
-  slug          String        @unique
-  brand         String?
-  description   String?
-  price         Decimal       @db.Decimal(10, 2)
-  originalPrice Decimal?      @db.Decimal(10, 2)
-  discount      Int? // % giảm giá (25 = 25%)
-  stock         Int           @default(0)
-  sku           String?       @unique
-  status        ProductStatus @default(ACTIVE)
-  isApproved    Boolean       @default(false)
+  id              String        @id @default(cuid())
+  sellerId        String
+  categoryId      String
+  name            String
+  slug            String        @unique
+  brand           String?
+  description     String?
+  price           Decimal       @db.Decimal(10, 2)
+  originalPrice   Decimal?      @db.Decimal(10, 2)
+  discount        Int? // % giảm giá (25 = 25%)
+  stock           Int           @default(0)
+  sku             String?       @unique
+  status          ProductStatus @default(ACTIVE)
+  isApproved      Boolean       @default(false)
   rejectionReason String?
-  featured      Boolean       @default(false)
-  trending      Boolean       @default(false)
+  featured        Boolean       @default(false)
+  trending        Boolean       @default(false)
 
   // Badge label tùy chỉnh: "New Arrival", "Best Seller", "Limited Edition"
   // WishlistPage.tsx:96 - item.product.badge
